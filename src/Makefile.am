@@ -10,6 +10,7 @@ DIST_SUBDIRS = rtree
 EXTRA_DIST=icon.xbm
 
 XASTIR_SRC = \
+    aprs_position.c aprs_position.h \
     alert.c alert.h \
     ambiguity_utils.c ambiguity_utils.h \
     awk.c awk.h \

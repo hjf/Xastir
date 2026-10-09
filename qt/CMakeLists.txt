@@ -24,7 +24,7 @@ qt_add_resources(xastir_qt_ui legacy_menus
   FILES "${CMAKE_CURRENT_SOURCE_DIR}/legacy_menus.json"
 )
 target_include_directories(xastir_qt_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(xastir_qt_ui PUBLIC Qt6::Widgets Qt6::Network)
+target_link_libraries(xastir_qt_ui PUBLIC Qt6::Widgets Qt6::Network xastir_core)
 if(MSVC)
   target_compile_options(xastir_qt_ui PRIVATE /W4)
 else()

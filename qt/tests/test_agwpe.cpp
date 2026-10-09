@@ -52,6 +52,10 @@ void TestAgwpe::config() {
   QVERIFY(!readXastirConfig(file.fileName(), config, &error)); QVERIFY(!error.contains("secret"));
 }
 void TestAgwpe::positions() {
+  auto dao = decodeAprs("TEST>APRS:!4903.50N/07201.75W>!W12!");
+  QVERIFY(dao);
+  QVERIFY(std::abs(dao->station.position.latitude - (49 + 3.501 / 60)) < 1e-8);
+  QVERIFY(std::abs(dao->station.position.longitude + (72 + 1.752 / 60)) < 1e-8);
   auto update = decodeAprs("TEST>APRS:!4903.50N/07201.75W>090/010"); QVERIFY(update);
   QCOMPARE(update->station.callsign, "TEST"); QCOMPARE(update->station.symbolCode, QChar('>'));
   QVERIFY(std::abs(update->station.position.latitude - 49.0583333333) < 1e-8);

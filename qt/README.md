@@ -1,6 +1,6 @@
 # Xastir Qt map milestone
 
-An independent Qt 6 Widgets frontend, built with CMake. The first milestone is
+A Qt 6 Widgets frontend with a shared legacy C decoding core, built with CMake. The first milestone is
 a main window, the legacy menu structure, an interactive OpenStreetMap raster map, and APRS
 station and object icons with name labels. Station state can be loaded from JSON
 snapshots or received live through an AGWPE client. The Message menu supports
@@ -17,7 +17,7 @@ sudo apt-get install build-essential cmake ninja-build qt6-base-dev qt6-base-dev
 ```
 
 The project requires Qt 6.4 or newer (Widgets and Network; Test when tests are
-enabled), CMake 3.21 or newer, and a C++17 compiler. It has no Motif or Xlib
+enabled), CMake 3.21 or newer, a C99 compiler, and a C++17 compiler. It has no Motif or Xlib
 application dependencies. Qt chooses the platform backend.
 
 ## Build and run
@@ -261,3 +261,20 @@ artwork. `MapWidget::coordinateToScreen()` projects stations into the viewport.
 `AgwpeClient` feeds decoded updates into the station model without changing tile
 loading or rendering. The legacy map renderer and Xt event loop are not linked into this
 executable.
+
+## Shared legacy C core
+
+`xastir_core` builds `src/aprs_position.c` without Qt, Motif, Xlib, or global
+application state. Its uncompressed/compressed position, DAO, coordinate and
+symbol overlay functions were moved from `db.c` and `util.c`; those files now
+use adapters to the same implementation. Local station identity policy stays
+in the database adapter rather than the decoder. Qt converts the result's
+centisecond offsets to geographic degrees for stations, objects and items.
+
+This is the first extraction slice. Packet dispatch, Mic-E, the Qt station
+model, AGWPE transport and message engine still use their current C++
+implementations. The complete legacy database/message engine is not yet linked.
+The C API takes writable NUL-terminated position data; it advances the comment
+pointer and removes DAO metadata as the original implementation did.
+`aprs_position_core` tests these routines directly without a GUI; AGWPE tests
+also verify DAO precision through the Qt packet adapter.

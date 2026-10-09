@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "aprs_decoder.h"
 #include <cmath>
+#include "aprs_position.h"
 
 namespace {
 std::optional<double> angle(QByteArray value, int degrees)
@@ -24,35 +25,26 @@ std::optional<double> angle(QByteArray value, int degrees)
 }
 bool position(const QByteArray &data, Station &station)
 {
-  if (data.size() >= 19 && data[0] >= '0' && data[0] <= '9') {
-    const auto lat = angle(data.left(8), 2), lon = angle(data.mid(9, 9), 3);
-    if (!lat || !lon) return false;
-    station.position = {*lat, *lon}; station.symbolTable = QChar(data[8]); station.symbolCode = QChar(data[18]);
-    if (data.size() >= 26 && data[22] == '/') {
-      bool ok; const int course = data.mid(19, 3).toInt(&ok);
-      if (ok && course > 0 && course <= 360) station.course = course % 360;
-    }
-    return true;
+  if (data.isEmpty() || data.contains('\0')) return false;
+  QByteArray buffer = data;
+  char *comment = buffer.data();
+  XastirPosition decoded{};
+  const bool uncompressed = data[0] >= '0' && data[0] <= '9';
+  // Retain strict boundary/ambiguity validation before legacy conversion.
+  if (uncompressed && (!angle(data.left(8), 2) || !angle(data.mid(9, 9), 3))) return false;
+  const int result = uncompressed
+      ? xastir_extract_position(&decoded, &comment, 0)
+      : xastir_extract_comp_position(&decoded, &comment);
+  if (!result) return false;
+  station.position = {90 - decoded.coord_lat / 360000.0, decoded.coord_lon / 360000.0 - 180};
+  station.symbolTable = QChar(decoded.aprs_symbol.special_overlay
+      ? decoded.aprs_symbol.special_overlay : decoded.aprs_symbol.aprs_type);
+  station.symbolCode = QChar(decoded.aprs_symbol.aprs_symbol);
+  if (decoded.course[0]) station.course = QByteArray(decoded.course).toInt() % 360;
+  else if (uncompressed && data.size() >= 26 && data[22] == '/') {
+    bool ok; const int course = data.mid(19, 3).toInt(&ok);
+    if (ok && course > 0 && course <= 360) station.course = course % 360;
   }
-  if (data.size() < 13) return false;
-  const char table = data[0];
-  if (table != '/' && table != '\\' && !(table >= 'A' && table <= 'Z')
-      && !(table >= 'a' && table <= 'j')) return false;
-  auto base91 = [](const QByteArray &bytes) -> std::optional<int> {
-    int value = 0;
-    for (unsigned char c : bytes) { if (c < 33 || c > 123) return {}; value = value * 91 + c - 33; }
-    return value;
-  };
-  const auto y = base91(data.mid(1, 4)), x = base91(data.mid(5, 4));
-  if (!y || !x) return false;
-  station.position = {90 - *y / 380926.0, -180 + *x / 190463.0};
-  station.symbolTable = QChar(data[0]); station.symbolCode = QChar(data[9]);
-  if (data[0] >= 'a' && data[0] <= 'j') station.symbolTable = QChar('0' + data[0] - 'a');
-  const int c = static_cast<unsigned char>(data[10]) - 33;
-  const int s = static_cast<unsigned char>(data[11]) - 33;
-  const int type = static_cast<unsigned char>(data[12]) - 33;
-  if (data[10] != ' ' && (c < 0 || c > 90 || s < 0 || s > 90 || type < 0 || type > 63)) return false;
-  if (c >= 0 && c < 90 && (type & 0x18) != 0x10) station.course = c * 4;
   return true;
 }
 bool micE(QByteArray destination, const QByteArray &data, Station &station)

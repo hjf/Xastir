@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 cmake_minimum_required(VERSION 3.21)
-project(XastirQt VERSION 0.1.0 LANGUAGES CXX)
+project(XastirQt VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -9,4 +9,18 @@ set(CMAKE_AUTOMOC ON)
 
 find_package(Qt6 6.4 REQUIRED COMPONENTS Widgets Network)
 include(CTest)
+add_library(xastir_core STATIC src/aprs_position.c)
+set_target_properties(xastir_core PROPERTIES AUTOMOC OFF C_STANDARD 99 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+target_include_directories(xastir_core PUBLIC ${PROJECT_SOURCE_DIR}/src)
+if(NOT MSVC)
+  target_compile_options(xastir_core PRIVATE -Wall -Wextra -Wpedantic)
+  target_link_libraries(xastir_core PUBLIC m)
+endif()
 add_subdirectory(qt)
+
+if(BUILD_TESTING)
+  add_executable(test_aprs_position tests/core/test_aprs_position.c)
+  set_target_properties(test_aprs_position PROPERTIES AUTOMOC OFF)
+  target_link_libraries(test_aprs_position PRIVATE xastir_core)
+  add_test(NAME aprs_position_core COMMAND test_aprs_position)
+endif()
