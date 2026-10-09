@@ -1,0 +1,8 @@
+[
+  {"callsign": "DEMO-HOME", "latitude": -34.6037, "longitude": -58.3816, "symbol": "/-"},
+  {"callsign": "DEMO-CAR", "latitude": -34.6125, "longitude": -58.3690, "symbol": "/>", "course": 90},
+  {"callsign": "DEMO-WX", "latitude": -34.5895, "longitude": -58.3975, "symbol": "/_"},
+  {"callsign": "DEMO-DIGI", "latitude": -34.5980, "longitude": -58.4130, "symbol": "A#"},
+  {"callsign": "DEMO-PORT", "latitude": -34.5840, "longitude": -58.3700, "symbol": "/Y", "course": 0},
+  {"callsign": "DEMO-ALT", "latitude": -34.6240, "longitude": -58.3940, "symbol": "\\&"}
+]
