@@ -5,8 +5,12 @@
 #include "tile_source.h"
 #include "aprs_symbols.h"
 #include "station_model.h"
+#include "agwpe_client.h"
+#include <QtEndian>
 
 #include <QAction>
+#include <QMenuBar>
+#include <QMessageBox>
 #include <QBuffer>
 #include <QDateTime>
 #include <QImage>
@@ -106,6 +110,141 @@ class MapTest : public QObject
   Q_OBJECT
 
 private slots:
+  void legacyMenuStructureAndPlaceholders()
+  {
+    TileServer server;
+    QTemporaryDir cache;
+    ApplicationOptions options;
+    options.tiles = {server.urlTemplate(), cache.path()};
+    MainWindow window(options);
+    window.show();
+    QStringList roots;
+    for (auto *action : window.menuBar()->actions()) {
+      QVERIFY(action->menu()); roots.append(action->text().remove('&'));
+    }
+    QCOMPARE(roots, QStringList({"File", "View", "Map", "Station", "Message", "Interface", "Help"}));
+    auto *mapConfigure = window.findChild<QMenu *>("MENUTB0004");
+    QVERIFY(mapConfigure);
+    auto *background = mapConfigure->findChild<QMenu *>("PULDNMP005");
+    QVERIFY(background); QCOMPARE(background->actions().size(), 12);
+    // All leaf actions share the placeholder behavior, including toggles and Exit.
+    int leaves = 0, toggles = 0;
+    for (auto *action : window.findChildren<QAction *>()) {
+      if (!action->property("legacyMenuId").isValid() || action->property("implemented").toBool()) continue;
+      ++leaves;
+      if (action->isCheckable()) ++toggles;
+      action->trigger();
+      auto *dialog = window.findChild<QMessageBox *>("notImplementedDialog");
+      QVERIFY(dialog); QVERIFY(dialog->isVisible());
+      QCOMPARE(dialog->text(), QStringLiteral("Not implemented yet"));
+      QCOMPARE(dialog->informativeText(), action->property("legacyLabel").toString());
+      QVERIFY(!action->isChecked());
+      dialog->accept();
+      QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+      QVERIFY(window.isVisible());
+    }
+    QVERIFY(leaves > 150); QVERIFY(toggles > 50);
+    window.close();
+  }
+
+  void receivedObjectsRenderUpdateAndDisappear()
+  {
+    TileServer server;
+    QTcpServer agwpe;
+    QVERIFY(agwpe.listen(QHostAddress::LocalHost));
+    QTemporaryDir cache;
+    ApplicationOptions options;
+    options.center = {49 + 3.5 / 60, -(72 + 1.75 / 60)};
+    options.zoom = 12;
+    options.tiles = {server.urlTemplate(), cache.path()};
+    MainWindow window(options);
+    window.resize(640, 480);
+    auto *canvas = window.findChild<MapWidget *>();
+    window.show();
+    QTRY_COMPARE(window.statusBar()->currentMessage(), QStringLiteral("Map ready"));
+    const QImage background = canvas->grab().toImage();
+    AgwpeSettings settings;
+    settings.host = "127.0.0.1"; settings.port = agwpe.serverPort();
+    AgwpeClient client(settings, window.stationModel());
+    client.start(); QTRY_VERIFY(agwpe.hasPendingConnections());
+    auto *peer = agwpe.nextPendingConnection();
+    auto sendObject = [peer](const QByteArray &info) {
+      QByteArray payload(1, '\0');
+      for (const auto &name : {QByteArray("APRS  "), QByteArray("ORIGIN")}) {
+        for (char c : name) payload += char(c << 1);
+        payload += char(name == "ORIGIN" ? 0x61 : 0x60);
+      }
+      payload += char(3); payload += char(0xf0); payload += info;
+      QByteArray header(36, '\0'); header[4] = 'K';
+      qToLittleEndian<quint32>(quint32(payload.size()), header.data() + 28);
+      peer->write(header + payload);
+    };
+    sendObject(";Aid Point*092345z4903.50N/07201.75Wh");
+    QTRY_VERIFY(window.stationModel()->stations().contains("Aid Point"));
+    const Station object = window.stationModel()->stations().value("Aid Point");
+    QCOMPARE(object.kind, StationKind::Object); QCOMPARE(object.sourceStation, "ORIGIN");
+    AprsSymbols symbols;
+    const QImage icon = symbols.image('/', 'h');
+    QPoint opaque(-1, -1);
+    for (int y = 0; y < 20 && opaque.x() < 0; ++y)
+      for (int x = 0; x < 20; ++x)
+        if (icon.pixelColor(x, y).alpha() == 255) { opaque = {x, y}; break; }
+    QVERIFY(opaque.x() >= 0);
+    const QPoint center = canvas->coordinateToScreen(object.position).toPoint();
+    const QPoint pixel = center - QPoint(10, 10) + opaque;
+    const QImage rendered = canvas->grab().toImage();
+    QCOMPARE(rendered.pixelColor(pixel), icon.pixelColor(opaque));
+    const QRect label(center + QPoint(12, -10), QSize(100, 22));
+    QVERIFY(rendered.copy(label) != background.copy(label));
+    sendObject(";Aid Point*092346z4904.50N/07201.75Wh");
+    QTRY_VERIFY(window.stationModel()->stations().value("Aid Point").position.latitude > object.position.latitude);
+    QCOMPARE(canvas->grab().toImage().pixelColor(pixel), background.pixelColor(pixel));
+    sendObject(";Aid Point_092347z4904.50N/07201.75Wh");
+    QTRY_VERIFY(!window.stationModel()->stations().contains("Aid Point"));
+    QCOMPARE(canvas->grab().toImage(), background);
+    client.stop(); window.close();
+  }
+
+  void agwpeUpdatesWindow()
+  {
+    TileServer tiles;
+    QTcpServer agwpe;
+    QVERIFY(agwpe.listen(QHostAddress::LocalHost));
+    QTemporaryDir cache;
+    ApplicationOptions options;
+    options.tiles = {tiles.urlTemplate(), cache.path()};
+    options.config.callsign = "LOCAL-3";
+    Station local;
+    local.callsign = options.config.callsign;
+    local.position = {49, -72};
+    options.config.localStation = local;
+    AgwpeSettings settings;
+    settings.host = "127.0.0.1";
+    settings.port = agwpe.serverPort();
+    options.config.agwpe.append(settings);
+    auto *window = new MainWindow(options);
+    window->show();
+    QVERIFY(window->windowTitle().contains("LOCAL-3"));
+    QCOMPARE(window->stationModel()->stations().size(), 1);
+    QTRY_VERIFY(agwpe.hasPendingConnections());
+    auto *peer = agwpe.nextPendingConnection();
+    QByteArray payload(1, '\0');
+    for (const auto &name : {QByteArray("APRS  "), QByteArray("REMOTE")}) {
+      for (char c : name) payload += char(c << 1);
+      payload += char(name == "REMOTE" ? 0x61 : 0x60);
+    }
+    payload += char(3); payload += char(0xf0);
+    payload += "!4903.50N/07201.75W>";
+    QByteArray header(36, '\0'); header[4] = 'K';
+    qToLittleEndian<quint32>(quint32(payload.size()), header.data() + 28);
+    peer->write(header + payload);
+    QTRY_VERIFY(window->stationModel()->stations().contains("REMOTE"));
+    QCOMPARE(window->stationModel()->stations()["REMOTE"].symbolCode, QChar('>'));
+    QTRY_VERIFY(!tiles.requests.isEmpty());
+    delete window;
+    QTRY_COMPARE(peer->state(), QAbstractSocket::UnconnectedState);
+  }
+
   void initTestCase()
   {
     // Deterministic local HTTP tests must not use the machine's proxy settings.
@@ -174,13 +313,13 @@ private slots:
     QSignalSpy changes(&model, &StationModel::stationsChanged);
     QString error;
     QVERIFY2(model.loadFile(QStringLiteral(STATION_EXAMPLE_FILE), &error), qPrintable(error));
-    QCOMPARE(model.stations().size(), 6);
+    QCOMPARE(model.stations().size(), 8);
     QCOMPARE(changes.size(), 1);
     Station station = model.stations().value(QStringLiteral("DEMO-HOME"));
     station.callsign = " demo-home ";
     station.position.latitude = -34.6;
     QVERIFY(model.upsert(station));
-    QCOMPARE(model.stations().size(), 6);
+    QCOMPARE(model.stations().size(), 8);
     QCOMPARE(model.stations().value("DEMO-HOME").position.latitude, -34.6);
     QCOMPARE(changes.size(), 2);
     station.position.latitude = std::numeric_limits<double>::quiet_NaN();
@@ -195,7 +334,7 @@ private slots:
     QVERIFY(!model.upsert(station));
     QVERIFY(model.remove("demo-car"));
     QVERIFY(!model.remove("demo-car"));
-    QCOMPARE(model.stations().size(), 5);
+    QCOMPARE(model.stations().size(), 7);
     model.clear();
     QCOMPARE(model.stations().size(), 0);
     QCOMPARE(changes.size(), 4);
@@ -216,7 +355,7 @@ private slots:
     file.close();
     QVERIFY(!model.loadFile(file.fileName(), &error));
     QVERIFY(error.contains("Station 2"));
-    QCOMPARE(model.stations().size(), 6);
+    QCOMPARE(model.stations().size(), 8);
     QVERIFY(!model.stations().contains("NEW"));
     QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
     file.write("[{\"callsign\":\"n0call-1\",\"latitude\":0,\"longitude\":0,\"symbol\":\"/-\"},"
@@ -385,7 +524,7 @@ private slots:
     QCOMPARE(server.requests.size(), 1);
   }
 
-  void windowRendersNavigatesAndExits()
+  void windowRendersNavigatesAndShowsExitPlaceholder()
   {
     TileServer server;
     QVERIFY(server.server.isListening());
@@ -434,7 +573,9 @@ private slots:
     auto *exit = window.findChild<QAction *>(QStringLiteral("actionExit"));
     QVERIFY(exit);
     exit->trigger();
-    QVERIFY(!window.isVisible());
+    auto *dialog = window.findChild<QMessageBox *>("notImplementedDialog");
+    QVERIFY(dialog); QCOMPARE(dialog->text(), QStringLiteral("Not implemented yet"));
+    QVERIFY(window.isVisible()); dialog->accept(); window.close();
   }
 
   void destroysVisibleWindowWithPendingDownloads()

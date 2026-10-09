@@ -2,52 +2,43 @@
 #include "main_window.h"
 #include "map_widget.h"
 #include "station_model.h"
+#include "agwpe_client.h"
+#include "legacy_menus.h"
+#include "message_service.h"
+#include "message_ui.h"
+#include <QTimer>
 
-#include <QAction>
 #include <QLabel>
-#include <QFileDialog>
-#include <QMenuBar>
-#include <QMessageBox>
 #include <QStatusBar>
 
 MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   : QMainWindow(parent)
 {
-  setWindowTitle(tr("Xastir Qt"));
+  setWindowTitle(options.config.callsign.isEmpty() ? tr("Xastir Qt")
+    : tr("Xastir Qt — %1").arg(options.config.callsign));
   resize(1100, 760);
   auto *tiles = new TileSource(options.tiles, this);
   auto *mapWidget = new MapWidget(tiles, options.center, options.zoom, this);
   mapWidget_ = mapWidget;
   stations_ = new StationModel(mapWidget);
   mapWidget->setStationModel(stations_);
+  localStation_ = options.config.localStation;
+  if (localStation_) stations_->upsert(*localStation_);
   tiles->setParent(mapWidget);
   setCentralWidget(mapWidget);
 
-  auto *fileMenu = menuBar()->addMenu(tr("&File"));
-  auto *openAction = fileMenu->addAction(tr("&Open Stations…"));
-  openAction->setShortcut(QKeySequence::Open);
-  connect(openAction, &QAction::triggered, this, [this] {
-    const QString path = QFileDialog::getOpenFileName(this, tr("Open Station Snapshot"), {},
-                                                    tr("Station JSON (*.json)"));
-    if (path.isEmpty())
-      return;
-    QString error;
-    if (!loadStations(path, &error, true))
-      QMessageBox::warning(this, tr("Cannot Load Stations"), error);
-    else if (!stations_->stations().isEmpty() && mapWidget_->zoomLevel() < 12)
-      mapWidget_->setView(mapWidget_->centerCoordinate(), 12);
-  });
-  fileMenu->addSeparator();
-  auto *exitAction = fileMenu->addAction(tr("E&xit"));
-  exitAction->setObjectName(QStringLiteral("actionExit"));
-  exitAction->setShortcut(QKeySequence::Quit);
-  connect(exitAction, &QAction::triggered, this, &QWidget::close);
+  createLegacyMenus(this);
 
   auto *position = new QLabel(this);
   auto *stationCount = new QLabel(this);
   statusBar()->addPermanentWidget(stationCount);
   auto updateCount = [this, stationCount] {
-    stationCount->setText(tr("Stations: %1").arg(stations_->stations().size()));
+    int stationTotal = 0, objectTotal = 0;
+    for (const auto &entry : stations_->stations()) {
+      if (entry.kind == StationKind::Station) ++stationTotal;
+      else ++objectTotal;
+    }
+    stationCount->setText(tr("Stations: %1  Objects/items: %2").arg(stationTotal).arg(objectTotal));
   };
   connect(stations_, &StationModel::stationsChanged, stationCount, updateCount);
   updateCount();
@@ -64,12 +55,37 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   connect(mapWidget, &MapWidget::viewChanged, this, updatePosition);
   updatePosition();
   statusBar()->showMessage(tr("Loading map…"));
+  messages_ = new MessageService(options.config.callsign, this);
+  QList<AgwpeClient *> clients;
+  if (!options.config.agwpe.isEmpty()) {
+    for (const auto &settings : options.config.agwpe) {
+      auto *client = new AgwpeClient(settings, stations_, this);
+      clients.append(client);
+      connect(client, &AgwpeClient::packetReceived, messages_, [this, settings](const QByteArray &packet) {
+        messages_->receivePacket(packet, settings.deviceIndex);
+      });
+      auto *label = new QLabel(tr("AGWPE stopped"), this);
+      statusBar()->addWidget(label);
+      connect(client, &AgwpeClient::statusChanged, label, &QLabel::setText);
+      if (settings.connectOnStartup) QTimer::singleShot(0, client, [client] { client->start(); });
+    }
+  }
+  QList<QPointer<AgwpeClient>> routes;
+  for (auto *client : clients) routes.append(client);
+  messages_->setTransport([routes](const QByteArray &info, int device, const QString &path, QString *error) {
+    for (const auto &client : routes)
+      if (client && client->settings().deviceIndex == device) return client->transmit(info, path, error);
+    if (error) *error = QObject::tr("AGWPE interface is no longer available.");
+    return false;
+  });
+  new MessageUi(this, messages_, clients, options.config.autoReplyText);
 }
 
 bool MainWindow::loadStations(const QString &path, QString *error, bool centerOnStations)
 {
   if (!stations_->loadFile(path, error))
     return false;
+  if (localStation_) stations_->upsert(*localStation_);
   if (centerOnStations && !stations_->stations().isEmpty())
     mapWidget_->setView(stations_->stations().first().position, mapWidget_->zoomLevel());
   return true;

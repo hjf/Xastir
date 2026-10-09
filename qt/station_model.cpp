@@ -20,7 +20,10 @@ bool fail(QString *error, const QString &message)
 
 bool StationModel::validate(Station &station, QString *error)
 {
-  station.callsign = station.callsign.trimmed().toUpper();
+  station.callsign = station.callsign.trimmed();
+  if (station.kind == StationKind::Station)
+    station.callsign = station.callsign.toUpper();
+  station.sourceStation = station.sourceStation.trimmed().toUpper();
   if (station.callsign.isEmpty() || station.callsign.size() > 32)
     return fail(error, tr("Station name must contain 1–32 characters"));
   for (const QChar character : station.callsign)
@@ -49,9 +52,10 @@ bool StationModel::upsert(Station station, QString *error)
   return true;
 }
 
-bool StationModel::remove(const QString &callsign)
+bool StationModel::remove(const QString &name, StationKind kind)
 {
-  if (!stations_.remove(callsign.trimmed().toUpper()))
+  const QString key = kind == StationKind::Station ? name.trimmed().toUpper() : name.trimmed();
+  if (!stations_.remove(key))
     return false;
   emit stationsChanged();
   return true;
@@ -92,6 +96,16 @@ bool StationModel::loadFile(const QString &path, QString *error)
     Station station{object.value("callsign").toString(),
                     {object.value("latitude").toDouble(), object.value("longitude").toDouble()},
                     symbol[0], symbol[1], std::nullopt};
+    const QString kind = object.value("kind").toString("station");
+    if (kind == "object") station.kind = StationKind::Object;
+    else if (kind == "item") station.kind = StationKind::Item;
+    else if (kind != "station")
+      return fail(error, tr("Record %1: kind must be station, object, or item").arg(index + 1));
+    if (object.contains("kind") && !object.value("kind").isString())
+      return fail(error, tr("Record %1: kind must be a string").arg(index + 1));
+    if (object.contains("source") && !object.value("source").isString())
+      return fail(error, tr("Record %1: source must be a string").arg(index + 1));
+    station.sourceStation = object.value("source").toString();
     if (object.contains("course"))
       station.course = object.value("course").toDouble();
     QString reason;

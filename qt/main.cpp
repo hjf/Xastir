@@ -4,7 +4,10 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QTextStream>
+#include <QDir>
+#include <QFileInfo>
 #include <cmath>
+#include <algorithm>
 
 int main(int argc, char *argv[])
 {
@@ -23,6 +26,10 @@ int main(int argc, char *argv[])
     {{"zoom", "z"}, "Initial zoom level (0–19).", "level", "3"},
     {"tile-url", "XYZ URL template for 256-pixel raster tiles.", "url", TileSourceOptions{}.urlTemplate},
     {"cache-dir", "Override the tile HTTP cache directory.", "directory"},
+    {"config", "Read a legacy Xastir configuration (default: ~/.xastir/config/xastir.cnf).", "file"},
+    {"no-config", "Do not import the legacy configuration."},
+    {"agwpe-tx", "Enable message transmission on configured AGWPE devices for this run."},
+    {"no-agwpe", "Import station settings without connecting to AGWPE."},
     {"stations", "Load a JSON snapshot of decoded APRS stations.", "file"}
   });
   parser.process(application);
@@ -61,6 +68,24 @@ int main(int argc, char *argv[])
     return 1;
   }
 
+  if (!parser.isSet("no-config")) {
+    const QString path = parser.isSet("config") ? parser.value("config")
+      : QDir::homePath() + QStringLiteral("/.xastir/config/xastir.cnf");
+    if (parser.isSet("config") || QFileInfo::exists(path)) {
+      if (!readXastirConfig(path, options.config, &error)) {
+        QTextStream(stderr) << error << '\n'; return 1;
+      }
+      if (options.config.localStation) {
+        if (!parser.isSet("latitude")) options.center.latitude = options.config.localStation->position.latitude;
+        if (!parser.isSet("longitude")) options.center.longitude = options.config.localStation->position.longitude;
+        options.center.latitude = std::clamp(options.center.latitude, -map::MaxLatitude, map::MaxLatitude);
+        if (!parser.isSet("zoom")) options.zoom = 12;
+      }
+    }
+  }
+  if (parser.isSet("agwpe-tx"))
+    for (auto &settings : options.config.agwpe) settings.transmitEnabled = true;
+  if (parser.isSet("no-agwpe")) options.config.agwpe.clear();
   MainWindow window(options);
   if (parser.isSet("stations"))
   {

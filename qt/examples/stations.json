@@ -4,5 +4,7 @@
   {"callsign": "DEMO-WX", "latitude": -34.5895, "longitude": -58.3975, "symbol": "/_"},
   {"callsign": "DEMO-DIGI", "latitude": -34.5980, "longitude": -58.4130, "symbol": "A#"},
   {"callsign": "DEMO-PORT", "latitude": -34.5840, "longitude": -58.3700, "symbol": "/Y", "course": 0},
-  {"callsign": "DEMO-ALT", "latitude": -34.6240, "longitude": -58.3940, "symbol": "\\&"}
+  {"callsign": "DEMO-ALT", "latitude": -34.6240, "longitude": -58.3940, "symbol": "\\&"},
+  {"callsign": "Demo Park", "kind": "object", "source": "DEMO-HOME", "latitude": -34.6080, "longitude": -58.3850, "symbol": "/;"},
+  {"callsign": "Aid Point", "kind": "item", "source": "DEMO-HOME", "latitude": -34.6000, "longitude": -58.3890, "symbol": "/h"}
 ]

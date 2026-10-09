@@ -1,0 +1,1088 @@
+[
+  {
+    "id": "MENUTB0001",
+    "label": "File",
+    "mnemonic": "F",
+    "children": [
+      {
+        "id": "PULDNFI015",
+        "label": "Print",
+        "mnemonic": "P"
+      },
+      {
+        "id": "PULDNFI001",
+        "label": "Configure",
+        "mnemonic": "C",
+        "children": [
+          {
+            "id": "PULDNCF004",
+            "label": "Station",
+            "mnemonic": "S"
+          },
+          {
+            "id": "PULDNCF001",
+            "label": "Defaults",
+            "mnemonic": "D"
+          },
+          {
+            "id": "PULDNCF003",
+            "label": "Timing",
+            "mnemonic": "T"
+          },
+          {
+            "id": "PULDNCF002",
+            "label": "Coordinate System",
+            "mnemonic": "o"
+          },
+          {
+            "id": "PULDNCF006",
+            "label": "Audio Alarms",
+            "mnemonic": "A"
+          },
+          {
+            "id": "PULDNCF007",
+            "label": "Speech",
+            "mnemonic": "p"
+          },
+          {
+            "id": "SMARTB001",
+            "label": "Smart Beaconing"
+          },
+          {
+            "id": "PULDNMP025",
+            "label": "Fonts"
+          },
+          {
+            "id": "PULDNFI003",
+            "label": "Test",
+            "mnemonic": "T"
+          },
+          {
+            "id": "PULDNFI007",
+            "label": "Change Debug Level",
+            "mnemonic": "D"
+          },
+          {
+            "id": "PULDNUT001",
+            "label": "Enable English Units",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDB001",
+            "label": "Dist/Bearing Status",
+            "checkable": true
+          },
+          {
+            "separator": true
+          },
+          {
+            "id": "PULDNCF008",
+            "label": "Save Config Now!",
+            "mnemonic": "C"
+          }
+        ]
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "PULDNFI002",
+        "label": "Open Log File",
+        "mnemonic": "O"
+      },
+      {
+        "id": "PULDNFI010",
+        "label": "TNC Logging",
+        "checkable": true
+      },
+      {
+        "id": "PULDNFI011",
+        "label": "Net Logging",
+        "checkable": true
+      },
+      {
+        "id": "PULDNFI012",
+        "label": "IGate Logging",
+        "checkable": true
+      },
+      {
+        "id": "Message Logging",
+        "label": "Message Logging",
+        "checkable": true
+      },
+      {
+        "id": "PULDNFI013",
+        "label": "WX Logging",
+        "checkable": true
+      },
+      {
+        "id": "WX Alert Logging",
+        "label": "WX Alert Logging",
+        "checkable": true
+      },
+      {
+        "id": "PULDNFI014",
+        "label": "PNG Snapshots",
+        "checkable": true
+      },
+      {
+        "id": "PULDNFI016",
+        "label": "KML Snapshots",
+        "checkable": true
+      },
+      {
+        "separator": true
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "PULDNFI004",
+        "label": "Exit",
+        "mnemonic": "x"
+      }
+    ]
+  },
+  {
+    "id": "MENUTB0002",
+    "label": "View",
+    "mnemonic": "V",
+    "children": [
+      {
+        "id": "PULDNVI002",
+        "label": "Incoming Data",
+        "mnemonic": "I"
+      },
+      {
+        "id": "PULDNVI011",
+        "label": "Message Traffic",
+        "mnemonic": "T"
+      },
+      {
+        "id": "PULDNVI001",
+        "label": "Bulletins",
+        "mnemonic": "B"
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "PULDNVI003",
+        "label": "Mobile Stations",
+        "mnemonic": "M"
+      },
+      {
+        "id": "PULDNVI004",
+        "label": "All Stations",
+        "mnemonic": "A"
+      },
+      {
+        "id": "PULDNVI009",
+        "label": "Local Stations",
+        "mnemonic": "S"
+      },
+      {
+        "id": "PULDNVI012",
+        "label": "Last Stations",
+        "mnemonic": "L"
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "LHPUPNI005",
+        "label": "Objects & Items"
+      },
+      {
+        "id": "LHPUPNI006",
+        "label": "Own Objects & Items"
+      },
+      {
+        "id": "POPUPMA046",
+        "label": "CAD Polygons"
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "PULDNVI005",
+        "label": "Weather Stations",
+        "mnemonic": "W"
+      },
+      {
+        "id": "PULDNVI008",
+        "label": "Own Weather Data",
+        "mnemonic": "D"
+      },
+      {
+        "id": "PULDNVI007",
+        "label": "Weather Alerts",
+        "mnemonic": "e"
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "PULDNVI015",
+        "label": "GPS Status"
+      },
+      {
+        "id": "PULDNVI013",
+        "label": "Uptime",
+        "mnemonic": "U"
+      },
+      {
+        "id": "PULDNVI016",
+        "label": "ALOHA Statistics"
+      }
+    ]
+  },
+  {
+    "id": "MENUTB0004",
+    "label": "Map",
+    "mnemonic": "M",
+    "children": [
+      {
+        "id": "PULDNMP001",
+        "label": "Map Chooser",
+        "mnemonic": "M"
+      },
+      {
+        "id": "PULDNMP012",
+        "label": "Map Display Bookmarks",
+        "mnemonic": "B"
+      },
+      {
+        "id": "PULDNMP014",
+        "label": "Locate Map Feature",
+        "mnemonic": "F"
+      },
+      {
+        "id": "PULDNMP029",
+        "label": "Search Location"
+      },
+      {
+        "id": "COORD001",
+        "label": "Coordinate Calculator"
+      },
+      {
+        "id": "POPUPMA026",
+        "label": "Center & Zoom"
+      },
+      {
+        "id": "POPUPMA029",
+        "label": "Draw CAD Objects",
+        "children": [
+          {
+            "id": "POPUPMA046",
+            "label": "CAD Polygons"
+          },
+          {
+            "id": "POPUPMA047",
+            "label": "Enable CAD objects",
+            "checkable": true
+          },
+          {
+            "id": "POPUPMA048",
+            "label": "Enable CAD labels",
+            "checkable": true
+          },
+          {
+            "id": "POPUPMA050",
+            "label": "Enable CAD probability",
+            "checkable": true
+          },
+          {
+            "id": "POPUPMA049",
+            "label": "Enable CAD comments",
+            "checkable": true
+          },
+          {
+            "id": "POPUPMA051",
+            "label": "Enable CAD area size",
+            "checkable": true
+          }
+        ]
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "PULDNMP016",
+        "label": "Disable Fast Zoom/Pan/Home",
+        "checkable": true
+      },
+      {
+        "id": "PULDNMP013",
+        "label": "Disable All Maps",
+        "checkable": true
+      },
+      {
+        "id": "PULDNMP002",
+        "label": "Enable Auto Maps",
+        "checkable": true
+      },
+      {
+        "id": "PULDNMP021",
+        "label": "Auto Map - Disable Raster Maps",
+        "checkable": true
+      },
+      {
+        "id": "PULDNMP003",
+        "label": "Enable Map Grid",
+        "checkable": true
+      },
+      {
+        "id": "PULDNMP031",
+        "label": "Enable Map Border",
+        "checkable": true
+      },
+      {
+        "id": "PULDNMP004",
+        "label": "Enable Map Levels",
+        "checkable": true
+      },
+      {
+        "id": "PULDNMP010",
+        "label": "Enable Map Labels",
+        "checkable": true
+      },
+      {
+        "id": "PULDNMP009",
+        "label": "Enable Area Color Fills",
+        "checkable": true
+      },
+      {
+        "id": "PULDNMP007",
+        "label": "Enable Weather Alerts",
+        "checkable": true
+      },
+      {
+        "separator": true
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "PULDNFI001",
+        "label": "Configure",
+        "mnemonic": "C",
+        "children": [
+          {
+            "id": "PULDNMP005",
+            "label": "Background Color",
+            "mnemonic": "C",
+            "children": [
+              {
+                "id": "PULDNMBC11",
+                "label": "White"
+              },
+              {
+                "id": "PULDNMBC12",
+                "label": "Black"
+              },
+              {
+                "id": "PULDNMBC01",
+                "label": "Gray"
+              },
+              {
+                "id": "PULDNMBC02",
+                "label": "Misty Rose"
+              },
+              {
+                "id": "PULDNMBC03",
+                "label": "Navy Blue"
+              },
+              {
+                "id": "PULDNMBC04",
+                "label": "Steel Blue"
+              },
+              {
+                "id": "PULDNMBC05",
+                "label": "Med. Sea Green"
+              },
+              {
+                "id": "PULDNMBC06",
+                "label": "Pale Green"
+              },
+              {
+                "id": "PULDNMBC07",
+                "label": "Pale Goldenrod"
+              },
+              {
+                "id": "PULDNMBC08",
+                "label": "Goldenrod Yellow"
+              },
+              {
+                "id": "PULDNMBC09",
+                "label": "Rosy Brown"
+              },
+              {
+                "id": "PULDNMBC10",
+                "label": "Fire brick Red"
+              }
+            ]
+          },
+          {
+            "id": "PULDNMP008",
+            "label": "Map Intensity",
+            "mnemonic": "I",
+            "children": [
+              {
+                "id": "0%",
+                "label": "0%"
+              },
+              {
+                "id": "10%",
+                "label": "10%"
+              },
+              {
+                "id": "20%",
+                "label": "20%"
+              },
+              {
+                "id": "30%",
+                "label": "30%"
+              },
+              {
+                "id": "40%",
+                "label": "40%"
+              },
+              {
+                "id": "50%",
+                "label": "50%"
+              },
+              {
+                "id": "60%",
+                "label": "60%"
+              },
+              {
+                "id": "70%",
+                "label": "70%"
+              },
+              {
+                "id": "80%",
+                "label": "80%"
+              },
+              {
+                "id": "90%",
+                "label": "90%"
+              },
+              {
+                "id": "100%",
+                "label": "100%"
+              }
+            ]
+          },
+          {
+            "id": "GAMMA001",
+            "label": "Adjust Gamma Correction"
+          },
+          {
+            "id": "PULDNMP006",
+            "label": "Station Text Style",
+            "mnemonic": "T",
+            "children": [
+              {
+                "id": "PULDNMSL01",
+                "label": "Black Border",
+                "mnemonic": "B"
+              },
+              {
+                "id": "PULDNMSL02",
+                "label": "Black Shadow",
+                "mnemonic": "S"
+              },
+              {
+                "id": "PULDNMSL03",
+                "label": "Text on Black",
+                "mnemonic": "T"
+              },
+              {
+                "id": "PULDNMSL04",
+                "label": "DropShadow"
+              },
+              {
+                "id": "PULDNMSL05",
+                "label": "Black on White",
+                "mnemonic": "W"
+              }
+            ]
+          },
+          {
+            "id": "PULDNMP026",
+            "label": "Icon Outline Style",
+            "mnemonic": "O",
+            "children": [
+              {
+                "id": "PULDNMIO01",
+                "label": "No Outline",
+                "mnemonic": "N"
+              },
+              {
+                "id": "PULDNMIO02",
+                "label": "Black Outline",
+                "mnemonic": "B"
+              },
+              {
+                "id": "PULDNMIO03",
+                "label": "Grey Outline",
+                "mnemonic": "G"
+              },
+              {
+                "id": "PULDNMIO04",
+                "label": "White Outline",
+                "mnemonic": "W"
+              }
+            ]
+          },
+          {
+            "id": "PULDNMP030",
+            "label": "Configure USGS DRG"
+          },
+          {
+            "id": "PULDNMP032",
+            "label": "Geocoding Settings"
+          },
+          {
+            "separator": true
+          },
+          {
+            "id": "PULDNMP027",
+            "label": "Re-download Maps (Not from cache)"
+          },
+          {
+            "id": "PULDNMP028",
+            "label": "Flush Entire Map Cache!"
+          },
+          {
+            "id": "PULDNMP022",
+            "label": "Index New Maps on Startup",
+            "checkable": true
+          },
+          {
+            "id": "PULDNMP023",
+            "label": "Index: Add New Maps",
+            "mnemonic": "N"
+          },
+          {
+            "id": "PULDNMP024",
+            "label": "Index: Reindex ALL Maps!",
+            "mnemonic": "R"
+          }
+        ]
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "PULDNMP011",
+        "label": "Mouse Pointer Menu",
+        "mnemonic": "P"
+      }
+    ]
+  },
+  {
+    "id": "MENUTB0005",
+    "label": "Station",
+    "mnemonic": "S",
+    "children": [
+      {
+        "id": "PULDNDP014",
+        "label": "Find Station",
+        "mnemonic": "F"
+      },
+      {
+        "id": "PULDNDP001",
+        "label": "Track Station",
+        "mnemonic": "T"
+      },
+      {
+        "id": "PULDNDP022",
+        "label": "Fetch Findu Trail",
+        "mnemonic": "u"
+      },
+      {
+        "id": "PULDNDP055",
+        "label": "Export All",
+        "mnemonic": "E",
+        "children": [
+          {
+            "id": "PULDNDP056",
+            "label": "Export to KML File"
+          },
+          {
+            "id": "Store to open databases",
+            "label": "Store to open databases"
+          }
+        ]
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "PULDNDP032",
+        "label": "Filter Data",
+        "children": [
+          {
+            "id": "PULDNDP040",
+            "label": "Select None",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP041",
+            "label": "Select Mine",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP042",
+            "label": "Select TNC",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP027",
+            "label": "- Select Direct",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP043",
+            "label": "- Select Via Digi",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP034",
+            "label": "Select Net",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP051",
+            "label": "Select Tactical Calls Only",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP019",
+            "label": "Include Expired Data",
+            "checkable": true
+          },
+          {
+            "separator": true
+          },
+          {
+            "id": "PULDNDP044",
+            "label": "Select Stations",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP028",
+            "label": "- Select Fixed Stations",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP029",
+            "label": "- Select Moving Stations",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP030",
+            "label": "- Select WX Stations",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP053",
+            "label": "  - Select CWOP WX Stations",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP045",
+            "label": "Select Objects/Items",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP026",
+            "label": "- Select WX Objects/Items",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP039",
+            "label": "- Select Water Gauge Objects/Items",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP057",
+            "label": "- Select Aircraft Objects/Items",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP058",
+            "label": "- Select Vessel Objects/Items",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP031",
+            "label": "- Select Other Objects/Items",
+            "checkable": true
+          }
+        ]
+      },
+      {
+        "id": "PULDNDP033",
+        "label": "Filter Display",
+        "children": [
+          {
+            "id": "PULDNDP010",
+            "label": "Display Callsign",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP052",
+            "label": "- Label Trailpoints",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP012",
+            "label": "Display Symbol",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP011",
+            "label": "- Rotate Symbol",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP007",
+            "label": "Display Trail",
+            "checkable": true
+          },
+          {
+            "separator": true
+          },
+          {
+            "id": "PULDNDP003",
+            "label": "Display Course",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP004",
+            "label": "Display Speed",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP017",
+            "label": "- Display Short Speed",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP002",
+            "label": "Display Altitude",
+            "checkable": true
+          },
+          {
+            "separator": true
+          },
+          {
+            "id": "PULDNDP009",
+            "label": "Display Weather Info",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP046",
+            "label": "- Display Weather Text",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP018",
+            "label": "-- Temperature Only",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP047",
+            "label": "- Display Wind Barb",
+            "checkable": true
+          },
+          {
+            "separator": true
+          },
+          {
+            "id": "PULDNDP054",
+            "label": "Display Aloha Circle",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP013",
+            "label": "Display Position Ambiguity",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP008",
+            "label": "Display Power/Gain",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP021",
+            "label": "- Use Default Power/Gain",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP020",
+            "label": "- Display Mobile Power/Gain",
+            "checkable": true
+          },
+          {
+            "separator": true
+          },
+          {
+            "id": "PULDNDP023",
+            "label": "Display DF Attributes",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP123",
+            "label": "Display DF Beamwidth",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP223",
+            "label": "Display DF Bearing",
+            "checkable": true
+          },
+          {
+            "separator": true
+          },
+          {
+            "id": "PULDNDP035",
+            "label": "Enable Dead-Reckoning",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP036",
+            "label": "- Display Arc",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP037",
+            "label": "- Display Course",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP038",
+            "label": "- Display Symbol",
+            "checkable": true
+          },
+          {
+            "separator": true
+          },
+          {
+            "id": "PULDNDP005",
+            "label": "Display Dist/Bearing",
+            "checkable": true
+          },
+          {
+            "id": "PULDNDP024",
+            "label": "Display Last Report Age",
+            "checkable": true
+          }
+        ]
+      },
+      {
+        "separator": true
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "PULDNFI001",
+        "label": "Configure",
+        "mnemonic": "C",
+        "children": [
+          {
+            "id": "PULDNDP048",
+            "label": "Reload Object/Item History"
+          },
+          {
+            "id": "PULDNDP025",
+            "label": "Clear Object/Item History"
+          },
+          {
+            "id": "PULDNDP049",
+            "label": "Clear All Tactical Calls"
+          },
+          {
+            "id": "PULDNDP050",
+            "label": "Clear Tactical Call History"
+          },
+          {
+            "id": "PULDNDP016",
+            "label": "Clear All Trails!!!",
+            "mnemonic": "C"
+          },
+          {
+            "id": "PULDNDP015",
+            "label": "Clear All Stations!!!",
+            "mnemonic": "A"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "MENUTB0006",
+    "label": "Message",
+    "mnemonic": "e",
+    "children": [
+      {
+        "id": "PULDNMG001",
+        "label": "Send Message To",
+        "mnemonic": "S"
+      },
+      {
+        "id": "PULDNMG007",
+        "label": "Show Pending Messages",
+        "mnemonic": "P"
+      },
+      {
+        "id": "PULDNMG002",
+        "label": "Open Group Messages",
+        "mnemonic": "O"
+      },
+      {
+        "id": "PULDNMG003",
+        "label": "Clear All Outgoing Messages",
+        "mnemonic": "C"
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "PULDQUS001",
+        "label": "General Stations Query",
+        "mnemonic": "G"
+      },
+      {
+        "id": "PULDQUS002",
+        "label": "IGate Stations Query",
+        "mnemonic": "I"
+      },
+      {
+        "id": "PULDQUS003",
+        "label": "WX Stations Query",
+        "mnemonic": "W"
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "PULDNMG004",
+        "label": "Modify Auto Reply Message",
+        "mnemonic": "A"
+      },
+      {
+        "id": "PULDNMG005",
+        "label": "Enable Auto Reply Message",
+        "checkable": true
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "PULDNMG006",
+        "label": "Satellite Ack Mode",
+        "checkable": true
+      }
+    ]
+  },
+  {
+    "id": "MENUTB0010",
+    "label": "Interface",
+    "mnemonic": "I",
+    "children": [
+      {
+        "id": "PULDNTNT04",
+        "label": "Interface Control",
+        "mnemonic": "C"
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "PULDNTNT03",
+        "label": "Disable Transmit: ALL",
+        "checkable": true
+      },
+      {
+        "id": "PULDNTNT05",
+        "label": "Disable Transmit: My Position",
+        "checkable": true
+      },
+      {
+        "id": "PULDNTNT06",
+        "label": "Disable Transmit: Objects/Items",
+        "checkable": true
+      },
+      {
+        "id": "PULDNTNT11",
+        "label": "Enable Server Ports",
+        "checkable": true
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "PULDNTNT01",
+        "label": "Transmit Now!",
+        "mnemonic": "T"
+      },
+      {
+        "id": "PULDNTNT07",
+        "label": "Fetch GPS Track",
+        "mnemonic": "F"
+      },
+      {
+        "id": "PULDNTNT08",
+        "label": "Fetch GPS Routes",
+        "mnemonic": "R"
+      },
+      {
+        "id": "PULDNTNT09",
+        "label": "Fetch GPS Waypoints",
+        "mnemonic": "W"
+      },
+      {
+        "id": "PULDNTNT10",
+        "label": "Fetch Garmin RINO Waypoints",
+        "mnemonic": "G"
+      }
+    ]
+  },
+  {
+    "id": "MENUTB0009",
+    "label": "Help",
+    "mnemonic": "H",
+    "children": [
+      {
+        "id": "PULDNHEL01",
+        "label": "About",
+        "mnemonic": "A"
+      },
+      {
+        "id": "PULDNHEL02",
+        "label": "Help Index",
+        "mnemonic": "I"
+      },
+      {
+        "separator": true
+      },
+      {
+        "id": "PULDNHEL03",
+        "label": "EMERGENCY BEACON MODE ENABLE",
+        "mnemonic": "E",
+        "children": [
+          {
+            "id": "PULDNHEL04",
+            "label": "!!! EMERGENCY BEACON MODE !!!",
+            "checkable": true
+          }
+        ]
+      }
+    ]
+  }
+]
