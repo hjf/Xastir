@@ -12,6 +12,7 @@
 #include "station_details.h"
 #include "interface_control.h"
 #include "aprsis_client.h"
+#include "beacon_control.h"
 #include "aprs_decoder.h"
 #include <QTimer>
 
@@ -85,6 +86,10 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   updatePosition();
   statusBar()->showMessage(tr("Loading map…"));
   messages_ = new MessageService(options.config.callsign, this);
+  beacons_=new BeaconControl(this,options.config,[this]{return clients_;});
+  transmitDisabled_=beacons_->transmitDisabled();
+  connect(beacons_,&BeaconControl::transmitDisabledChanged,this,[this](bool disabled){transmitDisabled_=disabled;});
+  connect(beacons_,&BeaconControl::statusChanged,statusBar(),[this](const QString &message){statusBar()->showMessage(message,10000);});
   configureAgwpe(options.config);
   messageUi_ = new MessageUi(this, messages_, clients_, options.config.autoReplyText);
   new StationDetails(this, stations_, mapWidget_, navigator, messageUi_, options.config.callsign);
@@ -94,6 +99,7 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
     localStation_=config.localStation; if(localStation_) {localStation_->local=true;stations_->upsert(*localStation_);}
     stationMenu_->setLocalStation(localStation_);
     configureAgwpe(config);
+    beacons_->configure(config);
   });
 
 }
@@ -128,6 +134,6 @@ void MainWindow::configureAgwpe(const XastirConfig &config) {
     connect(client,&AgwpeClient::statusChanged,label,&QLabel::setText);
     if(settings.connectOnStartup)QTimer::singleShot(0,client,[client]{client->start();});
   }
-  messages_->setTransport([this](const QByteArray &info,int device,const QString &path,QString *error){for(auto *client:clients_)if(client->settings().deviceIndex==device)return client->transmit(info,path,error);if(error)*error=tr("AGWPE interface is no longer available.");return false;});
+  messages_->setTransport([this](const QByteArray &info,int device,const QString &path,QString *error){if(transmitDisabled_){if(error)*error=tr("All transmission is disabled.");return false;}for(auto *client:clients_)if(client->settings().deviceIndex==device)return client->transmit(info,path,error);if(error)*error=tr("AGWPE interface is no longer available.");return false;});
   if(messageUi_)messageUi_->setClients(clients_);
 }

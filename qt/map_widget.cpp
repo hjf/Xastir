@@ -378,9 +378,11 @@ void MapWidget::mouseReleaseEvent(QMouseEvent *event)
       QString selected; double best=225;
       for (const auto &station : stations_->stations()) {
         if (!stationVisible(station.callsign)) continue;
-        const QPointF delta=coordinateToScreen(station.position)-event->position();
+        QPointF delta=coordinateToScreen(station.position)-event->position();
+        const double world=map::worldSize(zoom_);
+        delta.setX(delta.x()-std::round(delta.x()/world)*world);
         const double squared=delta.x()*delta.x()+delta.y()*delta.y();
-        if(squared<best) {best=squared; selected=station.callsign;}
+        if(squared<=best) {best=squared; selected=station.callsign;}
       }
       if(!selected.isEmpty()) emit stationClicked(selected);
     }

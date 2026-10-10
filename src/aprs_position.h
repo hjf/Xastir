@@ -2,6 +2,7 @@
 #ifndef XASTIR_APRS_POSITION_H
 #define XASTIR_APRS_POSITION_H
 #include <stddef.h>
+#include "coordinate_formats.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -23,6 +24,14 @@ int xastir_extract_position(XastirPosition *position, char **info, int grid);
 int xastir_extract_comp_position(XastirPosition *position, char **info);
 int xastir_extract_speed_course(char *info, char *speed, char *course);
 int xastir_extract_altitude(char *info, char *altitude);
+void xastir_convert_lat_l2s(long lat, char *str, int capacity, int format);
+void xastir_convert_lon_l2s(long lon, char *str, int capacity, int format);
+/* Legacy fixed-position assembly; explicit parameters replace UI globals.
+ * Returns 1 on success; information excludes TNC framing CR/LF. */
+int xastir_format_fixed_position(char *out, size_t capacity, char message_type,
+    const char *position, const char *phg, const char *altitude, const char *comment, int compressed);
+int xastir_build_position_beacon(double latitude, double longitude, char table,
+    char symbol, const char *comment, char *out, size_t capacity);
 long xastir_convert_lat_s2l(char *lat);
 long xastir_convert_lon_s2l(char *lon);
 #ifdef __cplusplus

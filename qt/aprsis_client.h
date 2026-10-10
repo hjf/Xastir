@@ -5,22 +5,31 @@
 #include <QPointer>
 #include <QTcpSocket>
 #include <QTimer>
-class AprsisClient : public QObject {
+class AprsisClient : public QObject
+{
   Q_OBJECT
 public:
-  AprsisClient(AprsisSettings settings, QString callsign, StationModel *stations, QObject *parent=nullptr);
+  AprsisClient(AprsisSettings settings, QString callsign, StationModel *stations,
+               QObject *parent = nullptr);
+  ~AprsisClient() override;
   void start();
   void stop();
-  bool connected() const {return socket_.state()==QAbstractSocket::ConnectedState;}
-  static bool validate(const AprsisSettings &,const QString &callsign,QString *error=nullptr);
+  bool connected() const { return socket_.state() == QAbstractSocket::ConnectedState; }
+  static bool validate(const AprsisSettings &, const QString &callsign, QString *error = nullptr);
 signals:
   void packetReceived(const QByteArray &packet);
   void statusChanged(const QString &status);
+
 private:
   void connectToServer();
   void receive();
   void fail(const QString &reason);
-  AprsisSettings settings_; QString callsign_; QPointer<StationModel> stations_;
-  QTcpSocket socket_; QTimer retry_,timeout_; QByteArray input_;
-  bool running_=false,processing_=false,loggedIn_=false; int retryDelay_=2000;
+  AprsisSettings settings_;
+  QString callsign_;
+  QPointer<StationModel> stations_;
+  QTcpSocket socket_;
+  QTimer retry_, timeout_;
+  QByteArray input_;
+  bool running_ = false, processing_ = false, loggedIn_ = false;
+  int retryDelay_ = 2000;
 };

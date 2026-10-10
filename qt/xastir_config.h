@@ -24,6 +24,8 @@ struct AprsisSettings {
 };
 struct XastirConfig {
   AprsisSettings aprsis;
+  bool transmitDisabled = false;
+  bool positionTransmitDisabled = true;
   QString callsign;
   std::optional<Station> localStation;
   QList<AgwpeSettings> agwpe;

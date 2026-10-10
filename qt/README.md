@@ -446,3 +446,18 @@ Internet reports use the same shared C station database and packet monitor,
 including objects, items, and weather. Reception is not gated onto RF, and this
 connection cannot transmit messages or beacons. Incoming lines and buffering
 are bounded and processed in batches, with timeout and reconnect handling.
+
+## Position beacons and transmit controls
+
+Interface → Transmit Now opens a position preview and AGWPE device selector.
+Enable TX on the chosen device in Interface Control and clear Disable My
+Position before sending. Disable Transmit ALL blocks position beacons, messages,
+and acknowledgments. New installations keep position transmission disabled.
+
+Send now transmits a fixed uncompressed position using the original C coordinate
+converters and extracted packet formatter. The formatter preserves the legacy
+63-character information-field limit, truncating long comments. Optional periodic
+beacons require explicitly enabling and applying a schedule (60–86,400 seconds);
+the first automatic transmission waits one full interval. Settings persist across
+restarts. Every send checks the current transmit controls and device connection.
+APRS-IS remains receive-only.

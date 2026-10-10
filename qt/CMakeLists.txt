@@ -13,6 +13,7 @@ add_library(xastir_qt_ui STATIC
   station_details.cpp station_details.h
   interface_control.cpp interface_control.h
   aprsis_client.cpp aprsis_client.h
+  beacon_control.cpp beacon_control.h
   aprs_symbols.cpp aprs_symbols.h
   station_model.cpp station_model.h
   xastir_config.cpp xastir_config.h

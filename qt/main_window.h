@@ -9,6 +9,7 @@
 class MapWidget;
 class StationModel;
 class MessageService;
+class BeaconControl;
 class AprsisClient;
 class QLabel;
 class MessageUi; class PacketMonitor; class AgwpeClient; class StationMenu;
@@ -33,6 +34,8 @@ public:
 
 private:
   void configureAgwpe(const XastirConfig &config);
+  BeaconControl *beacons_ = nullptr;
+  bool transmitDisabled_ = false;
   AprsisClient *aprsis_ = nullptr;
   QLabel *aprsisLabel_ = nullptr;
   QList<AgwpeClient *> clients_;

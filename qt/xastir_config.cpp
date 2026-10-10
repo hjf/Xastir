@@ -67,6 +67,8 @@ bool readXastirConfig(const QString &path, XastirConfig &config, QString *error)
   display.dr_course = flag("DISPLAY_DEAD_RECKONING_COURSE", 1);
   display.dr_symbol = flag("DISPLAY_DEAD_RECKONING_SYMBOL", 1);
   result.selection = selection; result.display = display;
+  result.transmitDisabled = flag("DISABLE_TRANSMIT",0);
+  result.positionTransmitDisabled = flag("DISABLE_POSIT_TX",1);
   result.autoReplyText = values.value("AUTO_MSG_REPLY");
   result.callsign = values.value("STATION_CALLSIGN").trimmed().toUpper();
   auto angle = [](const QString &value, int degrees) -> std::optional<double> {

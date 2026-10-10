@@ -5,6 +5,16 @@
 #define CHECK(condition) do { if (!(condition)) { fprintf(stderr, "line %d: %s\n", __LINE__, #condition); return 1; } } while (0)
 int main(void)
 {
+  char beacon[128];
+  CHECK(xastir_build_position_beacon(49+3.5/60,-(72+1.75/60),'/', '>',"hi",beacon,sizeof(beacon)));
+  CHECK(strcmp(beacon,"=4903.50N/07201.75W>hi")==0);
+  CHECK(xastir_build_position_beacon(-34.999999,179.999999,'/', '-',"",beacon,sizeof(beacon)));
+  CHECK(strcmp(beacon,"=3500.00S/18000.00E-")==0);
+  CHECK(!xastir_build_position_beacon(91,0,'/','-',"",beacon,sizeof(beacon)));
+  CHECK(!xastir_build_position_beacon(0,0,'/','-',"bad\nline",beacon,sizeof(beacon)));
+  CHECK(!xastir_build_position_beacon(0,0,'/','-',"",beacon,10));
+  CHECK(xastir_format_fixed_position(beacon,sizeof(beacon),'!',"4903.50N/07201.75W>","","","12345678901234567890123456789012345678901234567890",0));
+  CHECK(strlen(beacon)==63);
   XastirPosition result = {0};
   char text[128] = "4903.50N/07201.75W>hello!W12!";
   char *comment = text;

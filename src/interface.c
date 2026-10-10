@@ -77,6 +77,8 @@
 #include "xa_config.h"
 //#include "maps.h"
 #include "interface.h"
+#include "aprs_position.h"
+#include "globals.h"
 #include "util.h"
 #include "mutex_utils.h"
 #include "wx.h"
@@ -8894,39 +8896,12 @@ void output_fixed_position(char *data_txt_save, size_t data_txt_save_size,
                            char *data_txt, size_t data_txt_size,
                            char *output_net)
 {
-
-  xastir_snprintf(data_txt_save,
-                  data_txt_save_size,
-                  "%c%s%s%s%s",
-                  aprs_station_message_type,
-                  my_pos,
-                  output_phg,
-                  output_alt,
-                  my_comment_tx);
-  
-  // Truncate at max length for this type of APRS
-  // packet.
-  if (transmit_compressed_posit)
-    {
-      if (strlen(data_txt_save) > 54)
-        {
-          data_txt_save[54] = '\0';
-        }
-    }
-  else   // Uncompressed lat/long
-    {
-      if (strlen(data_txt_save) > 63)
-        {
-          data_txt_save[63] = '\0';
-        }
-    }
-  
-  // Add '\r' onto end.
+  if (!xastir_format_fixed_position(data_txt_save, data_txt_save_size,
+      aprs_station_message_type, my_pos, output_phg, output_alt,
+      my_comment_tx, transmit_compressed_posit)) {
+    if (data_txt_size) data_txt[0]=0;
+    return;
+  }
   strncat(data_txt_save, "\r", data_txt_save_size-strlen(data_txt_save)-1);
-  
-  strcpy(data_txt, output_net);
-  data_txt[data_txt_size-1] = '\0';  // Terminate string
-  
-  strcat(data_txt, data_txt_save);
-  data_txt[data_txt_size-1] = '\0';  // Terminate string
+  xastir_snprintf(data_txt, data_txt_size, "%s%s", output_net, data_txt_save);
 }

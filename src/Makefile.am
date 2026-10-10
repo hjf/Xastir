@@ -14,7 +14,7 @@ XASTIR_SRC = \
     message_store.c message_store.h \
     station_db.c station_db.h station_view.c station_view.h core_types.h \
     aprs_mice.c \
-    aprs_position.c aprs_position.h \
+    aprs_position.c aprs_position.h coordinate_formats.h \
     alert.c alert.h \
     ambiguity_utils.c ambiguity_utils.h \
     awk.c awk.h \

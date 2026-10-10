@@ -942,3 +942,319 @@ int xastir_extract_altitude(char *info, char *altitude)
   }
   return(found);
 }
+
+/* Legacy coordinate display/output conversion from util.c. */
+void xastir_convert_lat_l2s(long lat, char *str, int str_len, int type)
+{
+  char ns;
+  float deg, min, sec;
+  int ideg, imin;
+  long temp;
+
+
+  if (!str || str_len < 1) return;
+  str[0] = '\0';
+  deg = (float)(lat - 32400000l) / 360000.0;
+
+  // Switch to integer arithmetic to avoid floating-point
+  // rounding errors.
+  temp = (long)(deg * 100000);
+
+  ns = 'S';
+  if (temp <= 0)
+  {
+    ns = 'N';
+    temp = labs(temp);
+  }
+
+  ideg = (int)temp / 100000;
+  min = (temp % 100000) * 60.0 / 100000.0;
+
+  // Again switch to integer arithmetic to avoid floating-point
+  // rounding errors.
+  temp = (long)(min * 1000);
+  imin = (int)(temp / 1000);
+  sec = (temp % 1000) * 60.0 / 1000.0;
+
+  switch (type)
+  {
+
+    case(CONVERT_LP_NOSP): /* do low P w/no space */
+      snprintf(str,
+                      str_len,
+                      "%02d%05.2f%c",
+                      ideg,
+//                min+0.001, // Correct possible unbiased rounding
+                      min,
+                      ns);
+      break;
+
+    case(CONVERT_LP_NORMAL): /* do low P normal */
+      snprintf(str,
+                      str_len,
+                      "%02d %05.2f%c",
+                      ideg,
+//                min+0.001, // Correct possible unbiased rounding
+                      min,
+                      ns);
+      break;
+
+    case(CONVERT_HP_NOSP): /* do HP w/no space */
+      snprintf(str,
+                      str_len,
+                      "%02d%06.3f%c",
+                      ideg,
+//                min+0.0001, // Correct possible unbiased rounding
+                      min,
+                      ns);
+      break;
+
+    case(CONVERT_VHP_NOSP): /* do Very HP w/no space */
+      snprintf(str,
+                      str_len,
+                      "%02d%07.4f%c",
+                      ideg,
+//                min+0.00001, // Correct possible unbiased rounding
+                      min,
+                      ns);
+      break;
+
+    case(CONVERT_UP_TRK): /* for tracklog files */
+      snprintf(str,
+                      str_len,
+                      "%c%02d %07.4f",
+                      ns,
+                      ideg,
+//                min+0.00001); // Correct possible unbiased rounding
+                      min);
+      break;
+
+    case(CONVERT_DEC_DEG):
+      snprintf(str,
+                      str_len,
+                      "%08.5f%c",
+//                (ideg+min/60.0)+0.000001, // Correct possible unbiased rounding
+                      ideg+min/60.0,
+                      ns);
+      break;
+
+    case(CONVERT_DMS_NORMAL):
+      snprintf(str,
+                      str_len,
+                      "%02d %02d %04.1f%c",
+                      ideg,
+                      imin,
+//                sec+0.01, // Correct possible unbiased rounding
+                      sec,
+                      ns);
+      break;
+
+    case(CONVERT_DMS_NORMAL_FORMATED):
+      snprintf(str,
+                      str_len,
+                      "%02d%c%02d\'%04.1f%c",
+                      ideg,
+                      0xb0,       // Degree symbol
+                      imin,
+//                sec+0.01, // Correct possible unbiased rounding
+                      sec,
+                      ns);
+      break;
+
+    case(CONVERT_HP_NORMAL_FORMATED):
+      snprintf(str,
+                      str_len,
+                      "%02d%c%06.3f%c",
+                      ideg,
+                      0xb0,         // Degree symbol
+//                min+0.0001, // Correct possible unbiased roundin
+                      min,
+                      ns);
+      break;
+
+    case(CONVERT_HP_NORMAL):
+    default: /* do HP normal */
+      snprintf(str,
+                      str_len,
+                      "%02d %06.3f%c",
+                      ideg,
+//                min+0.0001, // Correct possible unbiased rounding
+                      min,
+                      ns);
+      break;
+  }
+}
+
+void xastir_convert_lon_l2s(long lon, char *str, int str_len, int type)
+{
+  char ew;
+  float deg, min, sec;
+  int ideg, imin;
+  long temp;
+
+  if (!str || str_len < 1) return;
+  str[0] = '\0';
+  deg = (float)(lon - 64800000l) / 360000.0;
+
+  // Switch to integer arithmetic to avoid floating-point rounding
+  // errors.
+  temp = (long)(deg * 100000);
+
+  ew = 'E';
+  if (temp <= 0)
+  {
+    ew = 'W';
+    temp = labs(temp);
+  }
+
+  ideg = (int)temp / 100000;
+  min = (temp % 100000) * 60.0 / 100000.0;
+
+  // Again switch to integer arithmetic to avoid floating-point
+  // rounding errors.
+  temp = (long)(min * 1000);
+  imin = (int)(temp / 1000);
+  sec = (temp % 1000) * 60.0 / 1000.0;
+
+  switch(type)
+  {
+
+    case(CONVERT_LP_NOSP): /* do low P w/nospacel */
+      snprintf(str,
+                      str_len,
+                      "%03d%05.2f%c",
+                      ideg,
+//                min+0.001, // Correct possible unbiased rounding
+                      min,
+                      ew);
+      break;
+
+    case(CONVERT_LP_NORMAL): /* do low P normal */
+      snprintf(str,
+                      str_len,
+                      "%03d %05.2f%c",
+                      ideg,
+//                min+0.001, // Correct possible unbiased rounding
+                      min,
+                      ew);
+      break;
+
+    case(CONVERT_HP_NOSP): /* do HP w/nospace */
+      snprintf(str,
+                      str_len,
+                      "%03d%06.3f%c",
+                      ideg,
+//                min+0.0001, // Correct possible unbiased rounding
+                      min,
+                      ew);
+      break;
+
+    case(CONVERT_VHP_NOSP): /* do Very HP w/nospace */
+      snprintf(str,
+                      str_len,
+                      "%03d%07.4f%c",
+                      ideg,
+//                min+0.00001, // Correct possible unbiased rounding
+                      min,
+                      ew);
+      break;
+
+    case(CONVERT_UP_TRK): /* for tracklog files */
+      snprintf(str,
+                      str_len,
+                      "%c%03d %07.4f",
+                      ew,
+                      ideg,
+//                min+0.00001); // Correct possible unbiased rounding
+                      min);
+      break;
+
+    case(CONVERT_DEC_DEG):
+      snprintf(str,
+                      str_len,
+                      "%09.5f%c",
+//                (ideg+min/60.0)+0.000001, // Correct possible unbiased rounding
+                      ideg+min/60.0,
+                      ew);
+      break;
+
+    case(CONVERT_DMS_NORMAL):
+      snprintf(str,
+                      str_len,
+                      "%03d %02d %04.1f%c",
+                      ideg,
+                      imin,
+//                sec+0.01, // Correct possible unbiased rounding
+                      sec,
+                      ew);
+      break;
+
+    case(CONVERT_DMS_NORMAL_FORMATED):
+      snprintf(str,
+                      str_len,
+                      "%03d%c%02d\'%04.1f%c",
+                      ideg,
+                      0xb0,       // Degree symbol
+                      imin,
+//                sec+0.01, // Correct possible unbiased rounding
+                      sec,
+                      ew);
+      break;
+
+    case(CONVERT_HP_NORMAL_FORMATED):
+      snprintf(str,
+                      str_len,
+                      "%03d%c%06.3f%c",
+                      ideg,
+                      0xb0,         // Degree symbol
+//                min+0.0001, // Correct possible unbiased rounding
+                      min,
+                      ew);
+      break;
+
+    case(CONVERT_HP_NORMAL):
+    default: /* do HP normal */
+      snprintf(str,
+                      str_len,
+                      "%03d %06.3f%c",
+                      ideg,
+//                min+0.0001, // Correct possible unbiased rounding
+                      min,
+                      ew);
+      break;
+  }
+}
+
+/* Extracted from interface.c:output_fixed_position. Fixed reports retain the
+ * original 63/54-character limits without transport delimiters. */
+int xastir_format_fixed_position(char *out, size_t capacity, char type,
+    const char *position, const char *phg, const char *altitude, const char *comment, int compressed)
+{
+  if (!out || !capacity || !position || !phg || !altitude || !comment) return 0;
+  out[0]=0;
+  int length=snprintf(out,capacity,"%c%s%s%s%s",type,position,phg,altitude,comment);
+  const int limit=compressed ? 54 : 63;
+  if (length<0 || capacity<=(size_t)(length<limit ? length : limit)) {out[0]=0;return 0;}
+  if (length>limit) out[limit]=0;
+  return 1;
+}
+int xastir_build_position_beacon(double latitude, double longitude, char table,
+    char symbol, const char *comment, char *out, size_t capacity)
+{
+  if(!out || !capacity) return 0;
+  out[0]=0;
+  if(!isfinite(latitude)||!isfinite(longitude)||fabs(latitude)>90||fabs(longitude)>180
+     || table<33||table>126||symbol<33||symbol>126||!comment) return 0;
+  for(const unsigned char *p=(const unsigned char *)comment;*p;++p) if(*p<32||*p>126) return 0;
+  char lat[32],lon[32],position[80];
+  /* Round to APRS hundredths of minutes first, carrying minute 60 to the next
+   * degree. Then use the shared legacy coordinate output routines. */
+  long lat_units=lround(fabs(latitude)*6000), lon_units=lround(fabs(longitude)*6000);
+  long coord_lat=32400000L+(latitude<0?1:-1)*lat_units*60;
+  long coord_lon=64800000L+(longitude<0?-1:1)*lon_units*60;
+  xastir_convert_lat_l2s(coord_lat,lat,sizeof(lat),CONVERT_LP_NOSP);
+  xastir_convert_lon_l2s(coord_lon,lon,sizeof(lon),CONVERT_LP_NOSP);
+  if(strlen(lat)!=8||strlen(lon)!=9) return 0;
+  snprintf(position,sizeof(position),"%s%c%s%c",lat,table,lon,symbol);
+  return xastir_format_fixed_position(out,capacity,'=',position,"","",comment,0);
+}
