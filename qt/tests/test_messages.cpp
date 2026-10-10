@@ -50,6 +50,7 @@ private slots:
   void queueOrderAndAutoReplyRules();
   void agwpeTransmitFrames();
   void completeMessageMenu();
+  void enterSendsOnce();
 };
 void MessageTest::initTestCase() {
   QVERIFY(settingsDir_.isValid());
@@ -194,6 +195,36 @@ void MessageTest::agwpeTransmitFrames() {
   AgwpeSettings disabled = settings; disabled.transmitEnabled = false;
   AgwpeClient receiver(disabled, &stations); QString error; QVERIFY(!receiver.transmit("test", {}, &error));
   QVERIFY(error.contains("disabled")); client.stop();
+}
+void MessageTest::enterSendsOnce() {
+  ApplicationOptions options;options.config.callsign="LOCAL-3";
+  options.tiles.urlTemplate="http://127.0.0.1:1/{z}/{x}/{y}.png";
+  AgwpeSettings settings;settings.callsign="LOCAL-3";settings.host="127.0.0.1";
+  settings.port=1;settings.connectOnStartup=false;settings.transmitEnabled=true;
+  options.config.agwpe.append(settings);MainWindow window(options);
+  int transmissions=0;
+  window.messageService()->setTransport([&](const auto &,int,const auto &,auto *){++transmissions;return true;});
+  for(const auto &menu:{"PULDNMG001","PULDNMG002"}) {
+    window.findChild<QAction *>(menu)->trigger();
+    QDialog *conversation=nullptr;
+    for(auto *d:window.findChildren<QDialog *>("messageConversation"))if(d->isVisible())conversation=d;
+    QVERIFY(conversation);
+    if(QString(menu)=="PULDNMG001")conversation->findChild<QComboBox *>("messageRecipient")->setCurrentText("REMOTE");
+    auto *text=conversation->findChild<QLineEdit *>("messageText");
+    for(const auto key:{Qt::Key_Return,Qt::Key_Enter}) {
+      text->setText("Keyboard send");text->setFocus();
+      const auto before=window.messageService()->messages().size();
+      const int sent=transmissions;
+      QTest::keyClick(text,key);QCoreApplication::processEvents();
+      QCOMPARE(transmissions,sent+1);QCOMPARE(window.messageService()->messages().size(),before+1);
+      QVERIFY(text->text().isEmpty());QVERIFY(conversation->isVisible());
+      QVERIFY(window.findChildren<QMessageBox *>().isEmpty());
+      // Complete the addressed delivery so the following test send is not queued.
+      const auto last=window.messageService()->messages().last();
+      if(!last.group)window.messageService()->receivePacket("REMOTE>APRS::LOCAL-3  :ack"+last.id.toLatin1(),0);
+    }
+    conversation->close();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+  }
 }
 void MessageTest::completeMessageMenu() {
   QTcpServer server; QVERIFY(server.listen(QHostAddress::LocalHost));

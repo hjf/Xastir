@@ -171,6 +171,12 @@ void MessageUi::openConversation(QString peer, bool group)
   auto *send = buttons->addButton(tr("Send"), QDialogButtonBox::ActionRole); send->setObjectName("sendMessageButton");
   auto *join = group ? buttons->addButton(tr("Join Group"), QDialogButtonBox::ActionRole) : nullptr;
   layout->addWidget(buttons);
+  // Enter is handled by the message field. QDialog's automatic default-button
+  // handling would otherwise click Send again after the first send clears it.
+  for (auto *button : buttons->findChildren<QPushButton *>()) {
+    button->setAutoDefault(false);
+    button->setDefault(false);
+  }
   auto refresh = [this, recipient, table, group] {
     const QString address = recipient->currentText().trimmed().toUpper();
     QList<AprsMessage> visible;
