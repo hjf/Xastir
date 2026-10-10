@@ -271,6 +271,51 @@ static uint64_t append(XastirMessages *c, Message *m)
   trim(c); ++c->revision;
   return m->key;
 }
+int xastir_messages_restore(XastirMessages *c, const Message *saved)
+{
+  if (!c || !saved || !saved->key || saved->key >= INT64_MAX ||
+      saved->status < XMSG_QUEUED || saved->status > XMSG_INTERRUPTED ||
+      record(c, saved->key)) return 0;
+  Message m = *saved;
+  m.active = RECORD_ACTIVE;
+  m.call_sign[sizeof(m.call_sign)-1] = 0;
+  m.from_call_sign[sizeof(m.from_call_sign)-1] = 0;
+  m.message_line[sizeof(m.message_line)-1] = 0;
+  m.seq[sizeof(m.seq)-1] = 0;
+  m.path[sizeof(m.path)-1] = 0;
+  m.error[sizeof(m.error)-1] = 0;
+  if (m.pending) {
+    m.status = XMSG_INTERRUPTED;
+    m.retryable = m.outgoing;
+  }
+  m.pending = 0;
+  m.next_retry_ms = 0;
+  if (!xastir_msg_input_database(&c->history, &m)) return 0;
+  if (!m.outgoing && m.device >= 0 && m.device < 256) {
+    struct Seen *seen = &c->seen[c->seen_next++ % CACHE_LIMIT];
+    memset(seen, 0, sizeof(*seen));
+    seen->used = 1; seen->time = m.timestamp_ms;
+    copy(seen->sender, sizeof(seen->sender), m.from_call_sign);
+    copy(seen->recipient, sizeof(seen->recipient), m.call_sign);
+    copy(seen->id, sizeof(seen->id), m.seq);
+    copy(seen->text, sizeof(seen->text), m.message_line);
+  }
+  if (c->next_key <= m.key) c->next_key = m.key+1;
+  trim(c); ++c->revision;
+  return 1;
+}
+uint64_t xastir_messages_next_key(const XastirMessages *c) { return c->next_key; }
+const char *xastir_messages_counter(const XastirMessages *c) { return c->counter; }
+int xastir_messages_restore_counter(XastirMessages *c, const char *counter, uint64_t next_key)
+{
+  if (!c || !counter || strlen(counter) != 2 || !next_key || next_key >= INT64_MAX) return 0;
+  for (int i=0;i<2;++i)
+    if (!((counter[i]>='0' && counter[i]<='9') || (counter[i]>='A' && counter[i]<='Z') ||
+          (counter[i]>='a' && counter[i]<='z'))) return 0;
+  copy(c->counter, sizeof(c->counter), counter);
+  if (c->next_key < next_key) c->next_key = next_key;
+  return 1;
+}
 static int error(char *out, size_t capacity, const char *text) { copy(out, capacity, text); return 0; }
 static struct Peer *peer(XastirMessages *c, const char *call)
 {

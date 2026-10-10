@@ -88,16 +88,8 @@ void AgwpeClient::receive()
     const QByteArray packet = decodeAgwpeAx25(payload);
     if (packet.isEmpty()) continue;
     ++packets_; emit packetReceived(packet);
-    auto update = decodeAprs(packet);
-    if (update && stations_) {
-      update->station.dataVia = 'T';
-      if (update->removed) stations_->remove(update->station.callsign, update->station.kind);
-      else stations_->upsert(update->station);
-      ++updates_;
-    } else if (stations_) {
-      const auto weather = decodeAprsWeather(packet);
-      if (weather) stations_->updateWeather(weather->callsign,weather->weather,'T',weather->direct);
-    }
+    if(stations_) { stations_->applyPacket(packet,'T'); if(decodeAprs(packet)) ++updates_; }
+
   }
   input_.remove(0, offset); processing_ = false;
   if (offset) emit statusChanged(tr("AGWPE %1:%2 — receiving (%3 packets, %4 positions)")
@@ -140,5 +132,8 @@ bool AgwpeClient::transmit(const QByteArray &information, const QString &path, Q
   if (socket_.bytesToWrite() > 65536) return reject(tr("AGWPE transmit buffer is full."));
   if (socket_.write(frame + payload) != frame.size() + payload.size())
     return reject(tr("Cannot queue the packet to AGWPE."));
+  QByteArray packet=source+">"+destination;
+  for(const auto &digi:digis)packet+=','+digi.trimmed().toLatin1();
+  emit packetTransmitted(packet+':'+information);
   return true;
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "station_model.h"
+#include "aprs_decoder.h"
 
 #include <QFile>
 #include <QJsonArray>
@@ -186,12 +187,12 @@ bool StationModel::importTrail(const QList<Station> &points, QString *error)
   emit stationsChanged(); return true;
 }
 void StationModel::clearTactical() { setTactical({}); }
-void StationModel::updateWeather(const QString &name, const WeatherRow &weather, char dataVia, bool direct)
+void StationModel::updateWeather(const QString &name, const WeatherRow &weather, char dataVia, bool direct, qint64 heardAt)
 {
   Station check; check.callsign = name;
   if (!validate(check,nullptr)) return;
   const auto bytes = check.callsign.toUtf8();
-  auto *row = xastir_station_upsert(database_.get(),bytes.constData(),QDateTime::currentSecsSinceEpoch());
+  auto *row = xastir_station_upsert(database_.get(),bytes.constData(),heardAt ? heardAt : QDateTime::currentSecsSinceEpoch());
   if (!row || !xastir_get_weather_record(row)) return;
   *row->weather_data = weather; row->data_via = dataVia;
   row->flag |= ST_ACTIVE;
@@ -285,4 +286,21 @@ bool StationModel::loadFile(const QString &path, QString *error)
   refreshProjection();
   emit stationsChanged();
   return true;
+}
+
+void StationModel::applyPacket(const QByteArray &packet,char dataVia,qint64 heardAt)
+{
+  const auto update=decodeAprs(packet);
+  if(update) {
+    auto station=update->station;
+    station.dataVia=dataVia;station.heardAt=heardAt;
+    if(dataVia=='I')station.direct=false;
+    if(station.weather && heardAt) station.weather->wx_sec_time=heardAt;
+    if(update->removed)remove(station.callsign,station.kind);
+    else upsert(station);
+  } else {
+    const auto weather=decodeAprsWeather(packet);
+    if(weather) {auto value=weather->weather;if(heardAt)value.wx_sec_time=heardAt;
+      updateWeather(weather->callsign,value,dataVia,dataVia=='I'?false:weather->direct,heardAt);}
+  }
 }

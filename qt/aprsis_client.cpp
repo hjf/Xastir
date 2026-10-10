@@ -156,25 +156,7 @@ void AprsisClient::receive()
     if (line.isEmpty() || !loggedIn_)
       continue;
     emit packetReceived(line);
-    const auto update = decodeAprs(line);
-    if (stations_ && update)
-    {
-      if (update->removed)
-        stations_->remove(update->station.callsign, update->station.kind);
-      else
-      {
-        auto station = update->station;
-        station.dataVia = 'I';
-        station.direct = false;
-        stations_->upsert(station);
-      }
-    }
-    else if (stations_)
-    {
-      const auto weather = decodeAprsWeather(line);
-      if (weather)
-        stations_->updateWeather(weather->callsign, weather->weather, 'I', false);
-    }
+    if(stations_) stations_->applyPacket(line,'I');
   }
   input_.remove(0, offset);
   processing_ = false;

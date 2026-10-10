@@ -20,6 +20,7 @@ public:
   quint64 positionUpdates() const { return updates_; }
 signals:
   void statusChanged(const QString &status);
+  void packetTransmitted(const QByteArray &packet);
   void packetReceived(const QByteArray &packet);
 private:
   void connectToServer();

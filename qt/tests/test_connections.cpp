@@ -36,6 +36,8 @@ private slots:
     QTcpServer server;
     QVERIFY(server.listen(QHostAddress::LocalHost));
     ApplicationOptions options;
+    options.historyEnabled = true;
+    options.history.path = settings_.filePath("beacon-history.sqlite");
     options.config.callsign = "LOCAL";
     Station local;
     local.callsign = "LOCAL";
@@ -80,6 +82,11 @@ private slots:
     QCOMPARE(frame.mid(37, 7), QByteArray("WIDE1-1"));
     const auto info = frame.mid(47);
     QCOMPARE(info, QByteArray("=4903.50N/07201.75W>Qt beacon"));
+    window.historyStore()->flush();
+    const auto history = window.historyStore()->packets();
+    QCOMPARE(history.size(), 1);
+    QVERIFY(history.first().outgoing);
+    QCOMPARE(history.first().packet, QByteArray("LOCAL>APXQT1,WIDE1-1:") + info);
     const auto decoded = decodeAprs("LOCAL>APXQT1:" + info);
     QVERIFY(decoded);
     QCOMPARE(decoded->station.comment, QString("Qt beacon"));

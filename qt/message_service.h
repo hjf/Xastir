@@ -2,6 +2,7 @@
 #pragma once
 #include <QObject>
 #include <QSet>
+#include <QJsonArray>
 #include <QTimer>
 #include <memory>
 struct XastirMessages;
@@ -33,6 +34,11 @@ public:
   void cancel(quint64 key);
   void retry(quint64 key);
   void clearOutgoing();
+  QJsonArray archiveRecords() const;
+  QString messageCounter() const;
+  quint64 nextMessageKey() const;
+  void restoreArchive(const QJsonArray &records, const QString &counter, quint64 nextKey);
+  void receiveInternetPacket(const QByteArray &packet, qint64 timestamp = 0);
   bool setAutoReplyText(QString text, QString *error = nullptr);
   const QString &autoReplyText() const { return autoText_; }
   void setAutoReply(bool enabled);
@@ -41,6 +47,7 @@ public:
   bool satelliteMode() const;
   bool addGroup(QString group);
   const QSet<QString> &groups() const { return groups_; }
+  static QString statusText(int status, const QString &error = {});
   static bool validPath(const QString &path, QString *error = nullptr);
   static bool validText(const QString &text, QString *error = nullptr);
 signals:

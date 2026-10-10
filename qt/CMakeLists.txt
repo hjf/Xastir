@@ -14,6 +14,8 @@ add_library(xastir_qt_ui STATIC
   interface_control.cpp interface_control.h
   aprsis_client.cpp aprsis_client.h
   beacon_control.cpp beacon_control.h
+  history_store.cpp history_store.h
+  history_ui.cpp history_ui.h
   aprs_symbols.cpp aprs_symbols.h
   station_model.cpp station_model.h
   xastir_config.cpp xastir_config.h
@@ -31,7 +33,7 @@ qt_add_resources(xastir_qt_ui legacy_menus
   FILES "${CMAKE_CURRENT_SOURCE_DIR}/legacy_menus.json"
 )
 target_include_directories(xastir_qt_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(xastir_qt_ui PUBLIC Qt6::Widgets Qt6::Network xastir_core)
+target_link_libraries(xastir_qt_ui PUBLIC Qt6::Widgets Qt6::Network SQLite::SQLite3 xastir_core)
 if(MSVC)
   target_compile_options(xastir_qt_ui PRIVATE /W4)
 else()
@@ -49,6 +51,14 @@ install(TARGETS xastir-qt RUNTIME DESTINATION bin BUNDLE DESTINATION .)
 
 if(BUILD_TESTING)
   find_package(Qt6 6.4 REQUIRED COMPONENTS Test)
+  qt_add_executable(test_history tests/test_history.cpp)
+  target_link_libraries(test_history PRIVATE xastir_qt_ui Qt6::Test)
+  set_target_properties(test_history PROPERTIES WIN32_EXECUTABLE FALSE)
+  if(TARGET Qt6::QOffscreenIntegrationPlugin)
+    qt_import_plugins(test_history INCLUDE Qt6::QOffscreenIntegrationPlugin)
+  endif()
+  add_test(NAME history COMMAND test_history)
+  set_tests_properties(history PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 40)
   qt_add_executable(test_connections tests/test_connections.cpp)
   target_link_libraries(test_connections PRIVATE xastir_qt_ui Qt6::Test)
   set_target_properties(test_connections PROPERTIES WIN32_EXECUTABLE FALSE)

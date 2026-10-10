@@ -25,7 +25,7 @@ typedef struct {
 typedef enum {
   XMSG_QUEUED, XMSG_EARLIER, XMSG_TIMEOUT, XMSG_WAITING, XMSG_GROUP_SENT,
   XMSG_AWAITING, XMSG_CANCELLED, XMSG_ACKED, XMSG_REJECTED, XMSG_QUERY_SENT,
-  XMSG_RECEIVED, XMSG_HEARD, XMSG_AUTO_SENT, XMSG_AUTO_FAILED
+  XMSG_RECEIVED, XMSG_HEARD, XMSG_AUTO_SENT, XMSG_AUTO_FAILED, XMSG_INTERRUPTED
 } XastirMessageStatus;
 typedef struct {
   char recipient[10], text[68], id[6], reply_id[6], original_id[13];
@@ -47,6 +47,11 @@ XastirMessages *xastir_messages_create(const char *callsign);
 void xastir_messages_destroy(XastirMessages *core);
 void xastir_messages_set_callbacks(XastirMessages *core, void *user, XastirMessageTransmit tx, XastirMessageIncoming incoming);
 const XastirMessageStore *xastir_messages_history(const XastirMessages *core);
+/* Import archive records without callbacks, ACKs or queue admission. */
+int xastir_messages_restore(XastirMessages *, const Message *);
+uint64_t xastir_messages_next_key(const XastirMessages *);
+const char *xastir_messages_counter(const XastirMessages *);
+int xastir_messages_restore_counter(XastirMessages *, const char *, uint64_t next_key);
 uint64_t xastir_messages_revision(const XastirMessages *core);
 int xastir_messages_send(XastirMessages *, const char *to, const char *text, int group, int device, const char *path, int64_t now, char *error, size_t capacity);
 int xastir_messages_query(XastirMessages *, const char *query, int device, int64_t now, char *error, size_t capacity);

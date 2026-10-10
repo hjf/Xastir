@@ -4,6 +4,7 @@
 #include "map_projection.h"
 #include "tile_source.h"
 #include "xastir_config.h"
+#include "history_store.h"
 #include <QMainWindow>
 
 class MapWidget;
@@ -20,6 +21,8 @@ struct ApplicationOptions
   int zoom = 3;
   TileSourceOptions tiles;
   XastirConfig config;
+  bool historyEnabled = false;
+  HistoryOptions history;
 };
 
 class MainWindow : public QMainWindow
@@ -28,11 +31,13 @@ class MainWindow : public QMainWindow
 
 public:
   explicit MainWindow(const ApplicationOptions &options, QWidget *parent = nullptr);
+  HistoryStore *historyStore() const { return history_; }
   StationModel *stationModel() const { return stations_; }
   MessageService *messageService() const { return messages_; }
   bool loadStations(const QString &path, QString *error = nullptr, bool centerOnStations = false);
 
 private:
+  HistoryStore *history_ = nullptr;
   void configureAgwpe(const XastirConfig &config);
   BeaconControl *beacons_ = nullptr;
   bool transmitDisabled_ = false;

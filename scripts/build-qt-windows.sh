@@ -45,6 +45,7 @@ cmake -S "$root" -B "$root/build/windows" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$root/cmake/toolchains/mingw64.cmake" \
   -DCMAKE_PREFIX_PATH="$sdk" -DQT_HOST_PATH="$host" \
   -DQT_HOST_PATH_CMAKE_DIR="$host_cmake" -DCMAKE_BUILD_TYPE=Release \
+  -DXASTIR_SQLITE_AMALGAMATION="$source_dir/src/3rdparty/sqlite/sqlite3.c" \
   -DBUILD_TESTING=ON
 cmake --build "$root/build/windows" --parallel "$jobs"
 package="$root/build/windows-package"
@@ -90,7 +91,7 @@ git -C "$root" rev-parse HEAD > "$package/SOURCE-COMMIT.txt"
 cp "$deps/$archive.sha256" "$package/QT-SOURCE-SHA256.txt"
 x86_64-w64-mingw32-objdump -p "$package/xastir-qt.exe" \
   | sed -n 's/^[[:space:]]*DLL Name: / /p' > "$package/WINDOWS-IMPORTS.txt"
-if grep -Ei 'Qt6|libgcc|libstdc|libwinpthread|libssl|libcrypto' "$package/WINDOWS-IMPORTS.txt"; then
+if grep -Ei 'Qt6|sqlite|libgcc|libstdc|libwinpthread|libssl|libcrypto' "$package/WINDOWS-IMPORTS.txt"; then
   echo "Unexpected external runtime dependency; packaging failed." >&2
   exit 1
 fi

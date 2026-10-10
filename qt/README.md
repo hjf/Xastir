@@ -13,11 +13,11 @@ On Debian/Ubuntu:
 
 ```sh
 sudo apt-get update
-sudo apt-get install build-essential cmake ninja-build qt6-base-dev qt6-base-dev-tools qt6-qpa-plugins
+sudo apt-get install build-essential cmake ninja-build qt6-base-dev qt6-base-dev-tools qt6-qpa-plugins libsqlite3-dev
 ```
 
 The project requires Qt 6.4 or newer (Widgets and Network; Test when tests are
-enabled), CMake 3.21 or newer, a C99 compiler, and a C++17 compiler. It has no Motif or Xlib
+enabled), SQLite 3.24 or newer, CMake 3.21 or newer, a C99 compiler, and a C++17 compiler. It has no Motif or Xlib
 application dependencies. Qt chooses the platform backend.
 
 ## Build and run
@@ -461,3 +461,51 @@ beacons require explicitly enabling and applying a schedule (60–86,400 seconds
 the first automatic transmission waits one full interval. Settings persist across
 restarts. Every send checks the current transmit controls and device connection.
 APRS-IS remains receive-only.
+
+
+## Persistent history
+
+History is enabled by default. Received AGWPE and APRS-IS traffic, plus packets
+accepted for transmission by AGWPE, are saved to SQLite on a background writer
+thread. Traffic is retained for seven days, with additional limits of 100,000
+packets and 64 MiB of packet payload. Age cleanup runs at startup and every
+minute; busy feeds also run cleanup every 256 writes. These limits apply to
+traffic, not the permanent message archive, and exclude SQLite/index overhead.
+Deleted storage is reused and gradually reclaimed with incremental vacuum.
+
+On startup, retained received packets are applied in reception order through the
+same decoder and shared C station database as live traffic. Last-heard and
+weather timestamps retain their original reception times. Objects/items, kill
+reports, comments, and trails are restored where supported by the existing
+packet decoder. Outgoing records are history only and are never replayed into
+station state. Replay cannot send packets, ACKs, auto replies, or station queries.
+
+Messages, delivery status, and raw message/ACK/rejection packets have no automatic
+expiry. The most recent 2,000 structured messages for the configured local
+callsign populate the existing message windows; older messages remain accessible
+in View → History using Older. Archives are separated by local callsign. Pending
+messages become “Interrupted by restart” and require an explicit manual retry.
+The outgoing message ID counter is persisted. Clear outgoing removes the current
+queue/view but does not delete the permanent archive.
+
+View → History displays recent traffic and paginated message history, and shows
+the database path. On Linux the default path is normally
+`~/.local/share/Xastir/XastirQt/history.sqlite`; other platforms use Qt's local
+application-data location. Override it with `--history-db /path/history.sqlite`,
+or use `--no-history` to disable both storage and startup restoration for a run.
+`--no-config` does not disable history. Loading `--stations` replaces restored
+station state with the supplied snapshot.
+
+SQLite uses [write-ahead logging](https://www.sqlite.org/wal.html) and FULL
+synchronous commits. Clean shutdown drains queued writes. A crash may lose
+packets still waiting in the bounded writer queue; committed data survives an
+unclean process exit. Write/overload errors appear in the status bar and stderr,
+and reception continues. One application instance owns each database at a time
+to prevent message-key/counter collisions. The permanent message archive can grow without limit
+by design. Store the database on a local filesystem.
+
+Linux builds use the system SQLite library. For static packaging, CMake accepts
+`-DXASTIR_SQLITE_AMALGAMATION=/path/to/sqlite3.c` (with `sqlite3.h` alongside it).
+The Windows packaging script selects Qt's bundled SQLite source so SQLite does
+not introduce an extra DLL. This history change was built and tested on Linux;
+no Windows build was performed.

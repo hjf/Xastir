@@ -13,6 +13,8 @@
 #include "interface_control.h"
 #include "aprsis_client.h"
 #include "beacon_control.h"
+#include "history_ui.h"
+#include <QDebug>
 #include "aprs_decoder.h"
 #include <QTimer>
 
@@ -49,14 +51,7 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   });
   auto *monitor = new PacketMonitor(this); monitor_=monitor;
   connect(monitor, &PacketMonitor::replayPacket, stations_, [this](const QByteArray &packet) {
-    const auto update = decodeAprs(packet);
-    if (!update) {
-      const auto weather = decodeAprsWeather(packet);
-      if (weather) stations_->updateWeather(weather->callsign,weather->weather,'F',weather->direct);
-      return;
-    }
-    if (update->removed) stations_->remove(update->station.callsign, update->station.kind);
-    else stations_->upsert(update->station);
+    stations_->applyPacket(packet,'F');
   });
 
   auto *position = new QLabel(this);
@@ -86,6 +81,18 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   updatePosition();
   statusBar()->showMessage(tr("Loading map…"));
   messages_ = new MessageService(options.config.callsign, this);
+  if(options.historyEnabled) {
+    history_=new HistoryStore(options.history,this);
+    connect(history_,&HistoryStore::errorOccurred,this,[this](const QString &error){qWarning().noquote()<<error;statusBar()->showMessage(error,30000);});
+    QString error;
+    if(!history_->open(&error) || !history_->restore(stations_,messages_,&error)) {
+      qWarning().noquote()<<"History:"<<error;
+      QTimer::singleShot(0,this,[this,error]{statusBar()->showMessage(tr("History unavailable: %1").arg(error),30000);});
+    }
+    history_->saveMessages(messages_);
+    connect(messages_,&MessageService::changed,history_,[this]{history_->saveMessages(messages_);});
+    new HistoryUi(this,history_,options.config.callsign);
+  }
   beacons_=new BeaconControl(this,options.config,[this]{return clients_;});
   transmitDisabled_=beacons_->transmitDisabled();
   connect(beacons_,&BeaconControl::transmitDisabledChanged,this,[this](bool disabled){transmitDisabled_=disabled;});
@@ -121,14 +128,15 @@ void MainWindow::configureAgwpe(const XastirConfig &config) {
     aprsis_=new AprsisClient(config.aprsis,config.callsign,stations_,this);
     aprsisLabel_=new QLabel(tr("APRS-IS stopped"),this);statusBar()->addWidget(aprsisLabel_);
     connect(aprsis_,&AprsisClient::statusChanged,aprsisLabel_,&QLabel::setText);
-    connect(aprsis_,&AprsisClient::packetReceived,monitor_,[this](const QByteArray &packet){monitor_->receive(packet,256);});
+    connect(aprsis_,&AprsisClient::packetReceived,monitor_,[this](const QByteArray &packet){monitor_->receive(packet,256);if(history_)history_->recordPacket(packet,256);messages_->receiveInternetPacket(packet);});
     QTimer::singleShot(0,aprsis_,&AprsisClient::start);
   }
   for(auto *client:clients_) { client->stop(); delete client; } clients_.clear();
   for(auto *label:interfaceLabels_) {statusBar()->removeWidget(label);delete label;} interfaceLabels_.clear();
   for(const auto &settings:config.agwpe) {
     auto *client=new AgwpeClient(settings,stations_,this);clients_.append(client);
-    connect(client,&AgwpeClient::packetReceived,monitor_,[this,settings](const QByteArray &packet){monitor_->receive(packet,settings.deviceIndex);});
+    if(history_)connect(client,&AgwpeClient::packetTransmitted,history_,[this,settings](const QByteArray &packet){history_->recordPacket(packet,settings.deviceIndex,0,true);});
+    connect(client,&AgwpeClient::packetReceived,monitor_,[this,settings](const QByteArray &packet){monitor_->receive(packet,settings.deviceIndex);if(history_)history_->recordPacket(packet,settings.deviceIndex);});
     connect(client,&AgwpeClient::packetReceived,messages_,[this,settings](const QByteArray &packet){messages_->receivePacket(packet,settings.deviceIndex);});
     auto *label=new QLabel(tr("AGWPE stopped"),this);statusBar()->addWidget(label);interfaceLabels_.append(label);
     connect(client,&AgwpeClient::statusChanged,label,&QLabel::setText);

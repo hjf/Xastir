@@ -2,9 +2,11 @@
 #include "message_service.h"
 #include "message_core.h"
 #include <QDateTime>
+#include <QJsonObject>
 #include <algorithm>
 #include <new>
 #include <cstring>
+#include <cstdio>
 
 namespace {
 bool fail(QString *error, const QString &text) { if (error) *error = text; return false; }
@@ -56,22 +58,7 @@ void MessageService::sync()
     row.id = QString::fromLatin1(m.seq); row.path = QString::fromUtf8(m.path);
     row.outgoing = m.outgoing; row.group = m.group; row.pending = m.pending; row.retryable = m.retryable;
     row.device = m.device; row.attempts = m.tries; row.timestamp = m.timestamp_ms; row.nextRetry = m.next_retry_ms;
-    switch (m.status) {
-      case XMSG_QUEUED: row.status = tr("Queued"); break;
-      case XMSG_EARLIER: row.status = tr("Waiting for earlier message"); break;
-      case XMSG_TIMEOUT: row.status = tr("Timed out — no ACK"); break;
-      case XMSG_WAITING: row.status = tr("Waiting: %1").arg(QString::fromUtf8(m.error)); break;
-      case XMSG_GROUP_SENT: row.status = tr("Sent (group; no ACK)"); break;
-      case XMSG_AWAITING: row.status = tr("Awaiting ACK"); break;
-      case XMSG_CANCELLED: row.status = tr("Cancelled"); break;
-      case XMSG_ACKED: row.status = tr("Acknowledged"); break;
-      case XMSG_REJECTED: row.status = tr("Rejected"); break;
-      case XMSG_QUERY_SENT: row.status = tr("Query sent"); break;
-      case XMSG_RECEIVED: row.status = tr("Received"); break;
-      case XMSG_HEARD: row.status = tr("Heard"); break;
-      case XMSG_AUTO_SENT: row.status = tr("Auto reply sent (no ACK)"); break;
-      case XMSG_AUTO_FAILED: row.status = tr("Auto reply not sent: %1").arg(QString::fromUtf8(m.error)); break;
-    }
+    row.status = statusText(m.status, QString::fromUtf8(m.error));
     messages_.append(row);
   }
   std::sort(messages_.begin(), messages_.end(), [](const AprsMessage &a, const AprsMessage &b) { return a.key < b.key; });
@@ -138,4 +125,99 @@ bool MessageService::addGroup(QString group)
   if (group.contains(QChar(0))) return false;
   if (!xastir_messages_add_group(core_.get(), group.toUtf8().constData())) return false;
   groups_.insert(group); return true;
+}
+
+QJsonArray MessageService::archiveRecords() const
+{
+  QJsonArray result;
+  const auto *store = xastir_messages_history(core_.get());
+  for (long i=0;i<store->count;++i) {
+    const auto &m=store->data[i];
+    if (m.active != RECORD_ACTIVE) continue;
+    result.append(QJsonObject{{"key",QString::number(m.key)},
+      {"sender",QString::fromLatin1(m.from_call_sign)}, {"recipient",QString::fromLatin1(m.call_sign)},
+      {"text",QString::fromLatin1(m.message_line)}, {"id",QString::fromLatin1(m.seq)},
+      {"path",QString::fromUtf8(m.path)}, {"error",QString::fromUtf8(m.error)},
+      {"outgoing",bool(m.outgoing)}, {"group",bool(m.group)}, {"pending",bool(m.pending)},
+      {"retryable",bool(m.retryable)}, {"device",m.device}, {"status",m.status}, {"attempts",m.tries},
+      {"timestamp",QString::number(m.timestamp_ms)}});
+  }
+  return result;
+}
+quint64 MessageService::nextMessageKey() const { return xastir_messages_next_key(core_.get()); }
+QString MessageService::messageCounter() const { return QString::fromLatin1(xastir_messages_counter(core_.get())); }
+void MessageService::restoreArchive(const QJsonArray &records, const QString &counter, quint64 nextKey)
+{
+  for (const auto &value:records) {
+    const auto o=value.toObject();
+    Message m{};
+    m.key=o["key"].toString().toULongLong();
+    auto field=[&o](char *out,size_t size,const char *key,bool latin=true) {
+      const auto text=o[key].toString();
+      const auto bytes=latin ? text.toLatin1() : text.toUtf8();
+      std::snprintf(out,size,"%s",bytes.constData());
+    };
+    field(m.from_call_sign,sizeof(m.from_call_sign),"sender");
+    field(m.call_sign,sizeof(m.call_sign),"recipient");
+    field(m.message_line,sizeof(m.message_line),"text");
+    field(m.seq,sizeof(m.seq),"id");field(m.path,sizeof(m.path),"path",false);field(m.error,sizeof(m.error),"error",false);
+    m.outgoing=o["outgoing"].toBool();m.group=o["group"].toBool();m.pending=o["pending"].toBool();
+    m.retryable=o["retryable"].toBool();m.device=o["device"].toInt(-1);m.status=o["status"].toInt(-1);
+    m.tries=o["attempts"].toInt();m.timestamp_ms=o["timestamp"].toString().toLongLong();
+    m.sec_heard=m.timestamp_ms/1000;
+    xastir_messages_restore(core_.get(),&m);
+  }
+  xastir_messages_restore_counter(core_.get(),counter.toLatin1().constData(),nextKey);
+  sync();
+}
+void MessageService::receiveInternetPacket(const QByteArray &original, qint64 timestamp)
+{
+  QByteArray packet=original;
+  if(!timestamp)timestamp=clock_();
+  for(int depth=0;depth<=4;++depth) {
+    int arrow=packet.indexOf('>'),colon=packet.indexOf(':',arrow+1);
+    if(arrow<=0 || arrow>9 || colon<=arrow+1 || packet.contains('\0'))return;
+    const auto info=packet.mid(colon+1);
+    if(info.startsWith('}')){packet=info.mid(1);continue;}
+    XastirDecodedMessage decoded{};
+    if(!xastir_decode_message(info.constData(),&decoded) || decoded.kind)return;
+    const auto sender=QString::fromLatin1(packet.left(arrow)).trimmed().toUpper();
+    const quint64 next=nextMessageKey();
+    for(const auto &m:messages_) {
+      if(m.sender==sender && m.recipient==QString::fromLatin1(decoded.recipient) &&
+         m.text==QString::fromLatin1(decoded.text) && m.id==QString::fromLatin1(decoded.id) &&
+         timestamp-m.timestamp < (decoded.id[0]?3600000:30000)) return;
+    }
+    // Passive import intentionally bypasses delivery, peer-route and ACK state.
+    Message m{};m.key=next;m.device=256;m.timestamp_ms=timestamp;m.sec_heard=timestamp/1000;
+    m.status=XMSG_HEARD;
+    std::snprintf(m.from_call_sign,sizeof(m.from_call_sign),"%s",sender.toLatin1().constData());
+    std::snprintf(m.call_sign,sizeof(m.call_sign),"%s",decoded.recipient);
+    std::snprintf(m.message_line,sizeof(m.message_line),"%s",decoded.text);
+    std::snprintf(m.seq,sizeof(m.seq),"%s",decoded.id);
+    m.group=xastir_messages_is_group(core_.get(),decoded.recipient);
+    xastir_messages_restore(core_.get(),&m);sync();return;
+  }
+}
+
+QString MessageService::statusText(int status, const QString &error)
+{
+    switch (status) {
+      case XMSG_QUEUED: return tr("Queued");
+      case XMSG_EARLIER: return tr("Waiting for earlier message");
+      case XMSG_TIMEOUT: return tr("Timed out — no ACK");
+      case XMSG_WAITING: return tr("Waiting: %1").arg(error);
+      case XMSG_GROUP_SENT: return tr("Sent (group; no ACK)");
+      case XMSG_AWAITING: return tr("Awaiting ACK");
+      case XMSG_CANCELLED: return tr("Cancelled");
+      case XMSG_ACKED: return tr("Acknowledged");
+      case XMSG_REJECTED: return tr("Rejected");
+      case XMSG_QUERY_SENT: return tr("Query sent");
+      case XMSG_RECEIVED: return tr("Received");
+      case XMSG_HEARD: return tr("Heard");
+      case XMSG_AUTO_SENT: return tr("Auto reply sent (no ACK)");
+      case XMSG_INTERRUPTED: return tr("Interrupted by restart — retry manually");
+      case XMSG_AUTO_FAILED: return tr("Auto reply not sent: %1").arg(error);
+    }
+  return tr("Unknown status");
 }

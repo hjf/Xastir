@@ -44,6 +44,7 @@ public:
   bool upsert(Station station, QString *error = nullptr);
   bool remove(const QString &name, StationKind kind = StationKind::Station);
   void clear();
+  void applyPacket(const QByteArray &, char dataVia, qint64 heardAt = 0);
   // A file is a snapshot. Validate every record before replacing existing state.
   bool loadFile(const QString &path, QString *error = nullptr);
   static bool validate(Station &station, QString *error);
@@ -52,7 +53,7 @@ public:
   void clearTactical();
   void setTactical(const QMap<QString, QString> &names);
   bool importTrail(const QList<Station> &points, QString *error = nullptr);
-  void updateWeather(const QString &name, const WeatherRow &weather, char dataVia, bool direct);
+  void updateWeather(const QString &name, const WeatherRow &weather, char dataVia, bool direct, qint64 heardAt = 0);
   void setOwnCallsign(const QString &callsign) { ownCallsign_ = callsign; }
 
 signals:
