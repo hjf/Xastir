@@ -45,6 +45,28 @@ Drag with the left mouse button to pan. Scroll to zoom around the mouse pointer;
 `+`/`−` zoom around the center, and arrow keys pan. Close the window with the
 window manager's close button.
 
+## Windows portable build
+
+On Debian, install `g++-mingw-w64-x86-64-posix`, `curl`, `zip`, `python3`, CMake,
+Ninja and native Qt **6.8.2** host tools. Then run:
+
+```sh
+./scripts/build-qt-windows.sh
+```
+
+The script verifies the official Qt source checksum, builds a static Windows
+x64 Qt SDK, builds the application and tests, and packages
+`build/xastir-qt-windows-x64.zip`. The first build takes considerably longer
+than subsequent builds; set `XASTIR_BUILD_JOBS` to control parallelism.
+`XASTIR_QT_HOST` and `XASTIR_QT_HOST_CMAKE` select alternate native host tools.
+
+The EXE embeds Qt, compiler runtimes, APRS symbols and plugins. It uses Windows
+Schannel for HTTPS, so no OpenSSL DLLs are needed. Only Windows system libraries
+remain imported. The ZIP also includes license notices and a station demo.
+See [Windows instructions](windows/README-Windows.txt) for configuration paths.
+The application test fixture is copied into the build tree so tests can run
+on Windows without accessing Linux source paths.
+
 ## Legacy menus
 
 The menu bar reproduces File, View, Map, Station, Message, Interface and Help,

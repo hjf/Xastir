@@ -99,6 +99,8 @@ StationMenu::StationMenu(QMainWindow *window, StationModel *stations, MapWidget 
       if (in.exists()) {
         if (!in.open(QIODevice::ReadOnly) || in.size()>1024*1024) { showError(tr("Cannot read tactical call history.")); return; }
         while (!in.atEnd()) { const auto line=in.readLine(); text += line.startsWith('#') ? line : '#'+line; }
+        // Windows cannot replace a file while this read handle is open.
+        in.close();
       }
       QSaveFile out(path);
       if (!out.open(QIODevice::WriteOnly) || out.write(text)!=text.size() || !out.commit()) { showError(out.errorString()); return; }

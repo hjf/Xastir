@@ -34,7 +34,7 @@ else()
   target_compile_options(xastir_qt_ui PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-add_executable(xastir-qt WIN32 MACOSX_BUNDLE main.cpp)
+qt_add_executable(xastir-qt WIN32 MACOSX_BUNDLE main.cpp)
 target_link_libraries(xastir-qt PRIVATE xastir_qt_ui)
 set_target_properties(xastir-qt PROPERTIES
   MACOSX_BUNDLE_GUI_IDENTIFIER org.xastir.qt
@@ -45,24 +45,38 @@ install(TARGETS xastir-qt RUNTIME DESTINATION bin BUNDLE DESTINATION .)
 
 if(BUILD_TESTING)
   find_package(Qt6 6.4 REQUIRED COMPONENTS Test)
-  add_executable(test_qt_map tests/test_qt_map.cpp)
+  qt_add_executable(test_qt_map tests/test_qt_map.cpp)
   target_link_libraries(test_qt_map PRIVATE xastir_qt_ui Qt6::Test)
+  configure_file(examples/stations.json examples/stations.json COPYONLY)
   target_compile_definitions(test_qt_map PRIVATE
-    STATION_EXAMPLE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/examples/stations.json"
+    STATION_EXAMPLE_FILE="examples/stations.json"
   )
-  add_executable(test_agwpe tests/test_agwpe.cpp)
+  qt_add_executable(test_agwpe tests/test_agwpe.cpp)
   target_link_libraries(test_agwpe PRIVATE xastir_qt_ui Qt6::Test)
-  add_executable(test_messages tests/test_messages.cpp)
+  qt_add_executable(test_messages tests/test_messages.cpp)
   target_link_libraries(test_messages PRIVATE xastir_qt_ui Qt6::Test)
   add_test(NAME messages COMMAND test_messages)
-  add_executable(test_packet_monitor tests/test_packet_monitor.cpp)
+  qt_add_executable(test_packet_monitor tests/test_packet_monitor.cpp)
   target_link_libraries(test_packet_monitor PRIVATE xastir_qt_ui Qt6::Test)
   add_test(NAME packet_monitor COMMAND test_packet_monitor)
-  add_executable(test_station_navigator tests/test_station_navigator.cpp)
+  qt_add_executable(test_station_navigator tests/test_station_navigator.cpp)
   target_link_libraries(test_station_navigator PRIVATE xastir_qt_ui Qt6::Test)
   add_test(NAME station_navigator COMMAND test_station_navigator)
-  add_executable(test_station_menu tests/test_station_menu.cpp)
+  qt_add_executable(test_station_menu tests/test_station_menu.cpp)
   target_link_libraries(test_station_menu PRIVATE xastir_qt_ui Qt6::Test)
+  foreach(test_target IN ITEMS test_qt_map test_agwpe test_messages
+      test_packet_monitor test_station_navigator test_station_menu)
+    # Console test executables let CTest capture failures on Windows.
+    set_target_properties(${test_target} PROPERTIES WIN32_EXECUTABLE FALSE)
+  endforeach()
+  # Static Qt imports only the default Windows platform plugin. Keep the
+  # headless backend in test executables for CI and cross-build validation.
+  if(TARGET Qt6::QOffscreenIntegrationPlugin)
+    foreach(test_target IN ITEMS test_qt_map test_agwpe test_messages
+        test_packet_monitor test_station_navigator test_station_menu)
+      qt_import_plugins(${test_target} INCLUDE Qt6::QOffscreenIntegrationPlugin)
+    endforeach()
+  endif()
   add_test(NAME station_menu COMMAND test_station_menu)
   set_tests_properties(station_menu PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
   set_tests_properties(station_navigator PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)

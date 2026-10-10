@@ -409,7 +409,7 @@ private slots:
           break;
         }
     QVERIFY(found);
-    const QPoint midpoint(canvas->width() / 2, canvas->height() / 2);
+    const QPoint midpoint(qRound(canvas->width() / 2.0), qRound(canvas->height() / 2.0));
     const QPoint pixel = midpoint - QPoint(10, 10) + opaque;
     QVERIFY(window.stationModel()->upsert(station));
     const QImage rendered = canvas->grab().toImage();
