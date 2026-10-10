@@ -70,7 +70,8 @@ for path in (source / "src/3rdparty").rglob("*"):
                           or name == "qt_attribution.json"):
         files.add(path)
     if name == "qt_attribution.json":
-        metadata = json.loads(path.read_text())
+        # Qt attribution files can contain literal newlines in descriptions.
+        metadata = json.loads(path.read_text(), strict=False)
         for entry in metadata if isinstance(metadata, list) else [metadata]:
             for field in ("LicenseFile", "LicenseFiles", "CopyrightFile"):
                 names = entry.get(field, [])
