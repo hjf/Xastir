@@ -9,6 +9,7 @@
 class MapWidget;
 class StationModel;
 class MessageService;
+class AprsisClient;
 class QLabel;
 class MessageUi; class PacketMonitor; class AgwpeClient; class StationMenu;
 
@@ -32,6 +33,8 @@ public:
 
 private:
   void configureAgwpe(const XastirConfig &config);
+  AprsisClient *aprsis_ = nullptr;
+  QLabel *aprsisLabel_ = nullptr;
   QList<AgwpeClient *> clients_;
   QList<QLabel *> interfaceLabels_;
   MessageUi *messageUi_ = nullptr;

@@ -15,7 +15,15 @@ struct AgwpeSettings {
   quint32 radioPort = 0;
   QString path;
 };
+struct AprsisSettings {
+  QString host = "rotate.aprs2.net";
+  quint16 port = 14580;
+  QString filter = "r/0/0/100";
+  bool enabled = false;
+  bool reconnect = true;
+};
 struct XastirConfig {
+  AprsisSettings aprsis;
   QString callsign;
   std::optional<Station> localStation;
   QList<AgwpeSettings> agwpe;

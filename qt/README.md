@@ -433,3 +433,16 @@ station callsign takes effect after restarting, preserving queued message
 identity. Saved Qt settings override imported CNF station/interface values;
 `--no-config` skips both configuration sources. Transmission starts disabled
 on new devices and requires explicitly checking Enable TX.
+
+## APRS-IS reception
+
+Interface Control also offers a receive-only APRS-IS connection. Enter a server
+host, TCP port (normally 14580), and server-side filter, for example
+`r/-34.60/-58.38/100` for a 100 km radius. The checkbox enables startup reception;
+saving applies connection changes immediately when the station identity is unchanged.
+The login uses `pass -1` as specified by
+[APRS-IS connection documentation](https://www.aprs-is.net/Connecting.aspx).
+Internet reports use the same shared C station database and packet monitor,
+including objects, items, and weather. Reception is not gated onto RF, and this
+connection cannot transmit messages or beacons. Incoming lines and buffering
+are bounded and processed in batches, with timeout and reconnect handling.

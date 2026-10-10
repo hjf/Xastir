@@ -11,6 +11,7 @@
 #include "station_menu.h"
 #include "station_details.h"
 #include "interface_control.h"
+#include "aprsis_client.h"
 #include "aprs_decoder.h"
 #include <QTimer>
 
@@ -108,6 +109,15 @@ bool MainWindow::loadStations(const QString &path, QString *error, bool centerOn
 }
 
 void MainWindow::configureAgwpe(const XastirConfig &config) {
+  if(aprsis_) {aprsis_->stop();delete aprsis_;aprsis_=nullptr;}
+  if(aprsisLabel_){statusBar()->removeWidget(aprsisLabel_);delete aprsisLabel_;aprsisLabel_=nullptr;}
+  if(config.aprsis.enabled){
+    aprsis_=new AprsisClient(config.aprsis,config.callsign,stations_,this);
+    aprsisLabel_=new QLabel(tr("APRS-IS stopped"),this);statusBar()->addWidget(aprsisLabel_);
+    connect(aprsis_,&AprsisClient::statusChanged,aprsisLabel_,&QLabel::setText);
+    connect(aprsis_,&AprsisClient::packetReceived,monitor_,[this](const QByteArray &packet){monitor_->receive(packet,256);});
+    QTimer::singleShot(0,aprsis_,&AprsisClient::start);
+  }
   for(auto *client:clients_) { client->stop(); delete client; } clients_.clear();
   for(auto *label:interfaceLabels_) {statusBar()->removeWidget(label);delete label;} interfaceLabels_.clear();
   for(const auto &settings:config.agwpe) {

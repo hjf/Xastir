@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+#pragma once
+#include "xastir_config.h"
+#include <QObject>
+#include <QPointer>
+#include <QTcpSocket>
+#include <QTimer>
+class AprsisClient : public QObject {
+  Q_OBJECT
+public:
+  AprsisClient(AprsisSettings settings, QString callsign, StationModel *stations, QObject *parent=nullptr);
+  void start();
+  void stop();
+  bool connected() const {return socket_.state()==QAbstractSocket::ConnectedState;}
+  static bool validate(const AprsisSettings &,const QString &callsign,QString *error=nullptr);
+signals:
+  void packetReceived(const QByteArray &packet);
+  void statusChanged(const QString &status);
+private:
+  void connectToServer();
+  void receive();
+  void fail(const QString &reason);
+  AprsisSettings settings_; QString callsign_; QPointer<StationModel> stations_;
+  QTcpSocket socket_; QTimer retry_,timeout_; QByteArray input_;
+  bool running_=false,processing_=false,loggedIn_=false; int retryDelay_=2000;
+};
