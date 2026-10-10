@@ -1,3 +1,4 @@
+#include "station_view.h"
 #include "aprs_position.h"
 /*
  *
@@ -615,47 +616,7 @@ int get_seconds(void)
 /*       Yes, there is a reason why they both exist.                 */
 /*********************************************************************/
 double phg_range(char p, char h, char g)
-{
-  double power, height, gain, range;
-
-  if ( (p < '0') || (p > '9') )   // Power is outside limits
-  {
-    power = 0.0;
-  }
-  else
-  {
-    power = (double)( (p-'0')*(p-'0') );  // lclint said: "Assignment of char to double" here
-  }
-
-  if (h < '0')   // Height is outside limits (there is no upper limit according to the spec)
-  {
-    height = 10.0;
-  }
-  else
-  {
-    height = 10.0 * pow(2.0, (double)(h-'0'));
-  }
-
-  if ( (g < '0') || (g > '9') )   // Gain is outside limits
-  {
-    gain = 1.0;
-  }
-  else
-  {
-    gain = pow(10.0, (double)(g-'0') / 10.0);
-  }
-
-  range = sqrt(2.0 * height * sqrt((power / 10.0) * (gain / 2.0)));
-
-//    if (range > 70.0)
-//        fprintf(stderr,"PHG%c%c%c results in range of %f\n", p, h, g, range);
-
-  // Note:  Bob Bruninga, WB4APR, decided to cut PHG circles by
-  // 1/2 in order to show more realistic mobile ranges.
-  range = range / 2.0;
-
-  return(range);
-}
+{ return xastir_phg_range(p, h, g); }
 
 
 
@@ -666,49 +627,7 @@ double phg_range(char p, char h, char g)
 /*                                                                   */
 /*********************************************************************/
 double shg_range(char s, char h, char g)
-{
-  double power, height, gain, range;
-
-  if ( (s < '0') || (s > '9') )   // Power is outside limits
-  {
-    s = '0';
-  }
-
-  if (s == '0')               // No signal strength
-  {
-    power = 10.0 / 0.8;  // Preventing divide by zero (same as DOSaprs does it)
-  }
-  else
-  {
-    power = 10 / (s - '0');  // Makes circle smaller with higher signal strengths
-  }
-
-  if (h < '0')   // Height is outside limits (there is no upper limit according to the spec)
-  {
-    height = 10.0;
-  }
-  else
-  {
-    height = 10.0 * pow(2.0, (double)(h-'0'));
-  }
-
-  if ( (g < '0') || (g > '9') )   // Gain is outside limits
-  {
-    gain = 1.0;
-  }
-  else
-  {
-    gain = pow(10.0, (double)(g-'0') / 10.0);
-  }
-
-  range = sqrt(2.0 * height * sqrt((power / 10.0) * (gain / 2.0)));
-
-  range = (range * 40) / 51;   // Present fudge factors used in DOSaprs
-
-  //fprintf(stderr,"SHG%c%c%c results in range of %f\n", s, h, g, range);
-
-  return(range);
-}
+{ return xastir_shg_range(s, h, g); }
 
 
 
@@ -2343,21 +2262,7 @@ double convert_lon_l2r(long lon)
 // Outputs: Distance in meters between them (double)
 //
 double calc_distance_haversine_radian(double lat1, double lon1, double lat2, double lon2)
-{
-  double dlon, dlat;
-  double a, c, d;
-  double R = EARTH_RADIUS_METERS;
-#define square(x) (x)*(x)
-
-
-  dlon = lon2 - lon1;
-  dlat = lat2 - lat1;
-  a = square((sin(dlat/2.0))) + cos(lat1) * cos(lat2) * square((sin(dlon/2.0)));
-  c = 2.0 * atan2(sqrt(a), sqrt(1.0-a));
-  d = R * c;
-
-  return(d);
-}
+{ return xastir_distance_radians(lat1, lon1, lat2, lon2); }
 
 
 

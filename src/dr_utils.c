@@ -32,6 +32,7 @@
 #include "util.h"
 #include "main.h"
 #include "database.h"
+#include "station_view.h"
 
 // Calculate new position based on distance and angle.
 //
@@ -63,85 +64,8 @@
 //
 // If resulting longitude exceeds +/- 180°, subtract/add 360°.
 //
-void compute_DR_position(long x_long,   // input
-                         long y_lat,     // input
-                         double range,   // input in nautical miles
-                         double course,  // input in ° true
-                         long *x_long2,  // output
-                         long *y_lat2)   // output
-{
-  double bearing_radians, lat_M_radians;
-  float lat_A, lat_B, lon_A, lon_B, lat_M;
-  int ret;
-  unsigned long x_u_long, y_u_lat;
-
-
-//fprintf(stderr,"Distance:%fnm, Course:%f,  Time:%d\n",
-//    range,
-//    course,
-//    (int)(sec_now() - p_station->sec_heard));
-
-  // Bearing in radians
-  bearing_radians = (double)((course/360.0) * 2.0 * M_PI);
-
-  // Convert lat/long to floats
-  ret = convert_from_xastir_coordinates( &lon_A,
-                                         &lat_A,
-                                         x_long,
-                                         y_lat);
-
-  // Check if conversion ok
-  if (!ret)
-  {
-    // Problem during conversion.  Exit without changes.
-    *x_long2 = x_long;
-    *y_lat2 = y_lat;
-    return;
-  }
-
-  // Compute new latitude
-  lat_B = (float)((double)(lat_A) + (range/60.0) * cos(bearing_radians));
-
-  // Compute mid-range latitude
-  lat_M = (lat_A + lat_B) / 2.0;
-
-  // Convert lat_M to radians
-  lat_M_radians = (double)((lat_M/360.0) * 2.0 * M_PI);
-
-  // Compute new longitude
-  lon_B = (float)((double)(lon_A)
-                  + (range/60.0) * ( sin(bearing_radians) / cos(lat_M_radians)) );
-
-  // Test for out-of-bounds longitude, correct if so.
-  if (lon_B < -360.0)
-  {
-    lon_B = lon_B + 360.0;
-  }
-  if (lon_B >  360.0)
-  {
-    lon_B = lon_B - 360.0;
-  }
-
-//fprintf(stderr,"Lat:%f,  Lon:%f\n", lat_B, lon_B);
-
-  ret = convert_to_xastir_coordinates(&x_u_long,
-                                      &y_u_lat,
-                                      lon_B,
-                                      lat_B);
-
-  // Check if conversion ok
-  if (!ret)
-  {
-    // Problem during conversion.  Exit without changes.
-    *x_long2 = x_long;
-    *y_lat2 = y_lat;
-    return;
-  }
-
-  // Convert from unsigned long to long
-  *x_long2 = (long)x_u_long;
-  *y_lat2  = (long)y_u_lat;
-}
+void compute_DR_position(long x_long, long y_lat, double range, double course, long *x_long2, long *y_lat2)
+{ xastir_compute_DR_position(x_long, y_lat, range, course, x_long2, y_lat2); }
 
 
 

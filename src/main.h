@@ -190,66 +190,9 @@ extern int output_station_type;
 
 extern int emergency_beacon;
 
-typedef struct _selections
-{
-  int none;
-  int mine;
-  int tnc;
-  int direct;
-  int via_digi;
-  int net;
-  int tactical;
-  int old_data;
-
-  int stations;
-  int fixed_stations;
-  int moving_stations;
-  int weather_stations;
-  int CWOP_wx_stations;
-  int objects;
-  int weather_objects;
-  int gauge_objects;
-  int other_objects;
-  int aircraft_objects;
-  int vessel_objects;
-} Selections;
+#include "station_view.h"
 extern Selections Select_;
 
-typedef struct _what_to_display
-{
-  int callsign;
-  int label_all_trackpoints;
-  int symbol;
-  int symbol_rotate;
-  int trail;
-
-  int course;
-  int speed;
-  int speed_short;
-  int altitude;
-
-  int weather;
-  int weather_text;
-  int temperature_only;
-  int wind_barb;
-
-  int aloha_circle;
-  int ambiguity;
-  int phg;
-  int default_phg;
-  int phg_of_moving;
-
-  int df_data;
-  int df_beamwidth_data;
-  int df_bearing_data;
-  int dr_data;
-  int dr_arc;
-  int dr_course;
-  int dr_symbol;
-
-  int dist_bearing;
-  int last_heard;
-} What_to_display;
 extern What_to_display Display_;
 
 extern int currently_selected_stations;

@@ -318,3 +318,79 @@ independent database instances, list/index invariants, ancillary cleanup,
 comment retention, movement trails, expiry, peer/history bounds, ordering,
 ACK/Reply-ACK, retries, groups, and identifier rollover. Qt tests exercise
 these same backends through the existing menus and local AGWPE fixtures.
+
+View → Incoming Data (Visor → Datos Entrantes) opens the AGWPE packet monitor.
+It retains the latest 2,000 packets, including non-position packets, identifies
+receiving devices, and filters by packet text or callsign. Clear only clears the
+visible history. Monitoring continues while the window is closed.
+
+Capture writes incoming live packets to JSON Lines, preserving packet bytes as
+base64 along with reception timestamps and device numbers. Stop capture closes
+the file. Replay accepts these captures or plain TNC2 logs (one packet per line,
+with optional blank lines and `#` comments). It streams ten packets per second
+rather than reproducing the original timing, and can be stopped at any time.
+Replay uses the same APRS decoder and shared C station database as live packets,
+including object/item updates and deletions. It bypasses message delivery and
+never sends acknowledgments or auto replies. Live reception remains active;
+replayed packets update the current map database and are marked Replay in the
+monitor. Replay is not included in live captures.
+
+Station → Find Station and Station → Track Station now open a searchable live
+list of stations, objects, and items. Search matches names, callsigns, and object
+owners without regard to case. Center on map (or double-click a result) centers
+the selected position once; Follow keeps it centered as live or replayed
+positions change. Both preserve the current zoom level. Follow continues after
+closing the dialog and appears in the main status bar. Stop following, dragging
+the map, or using arrow keys ends tracking. Removing the target or replacing it
+with a different kind of entity also ends tracking. Zooming keeps it centered.
+These controls use the existing projection of the shared C station database;
+they do not maintain another station store or enable any transmissions.
+
+The remaining Station menu actions now control the Qt map. Filter Data uses the
+original `ok_to_draw_station` policy extracted to `src/station_view.c`, with
+explicit selection settings and clock/expiry parameters. RF/direct/digipeated,
+network/file, own-station/object, tactical, fixed/moving/weather/CWOP, and
+object-category filters affect rendering without discarding received records.
+Include Expired Data shows reports older than the default one-hour display
+expiry. Symbol rotation, labels, trailpoints, trails, course/speed/altitude,
+weather text/temperature/wind barbs, ambiguity boxes, PHG/RNG, DF/DFS, Aloha,
+dead-reckoning, distance/bearing, and report-age switches are connected.
+Display and selection defaults come from the legacy `DISPLAY_*` configuration
+keys; later Qt changes persist in Qt's application settings without rewriting
+`xastir.cnf`. Optional display features have parent switches: for example,
+weather text needs Display Weather Info, and DR Arc needs Enable Dead-Reckoning.
+
+The shared C core owns the original APRS weather and PHG/DF extraction routines,
+radio range calculations, station-selection structs/predicate, Aloha channel-load
+classification/weights, and rhumb-line dead-reckoning routine. Legacy entry
+points call this same core. Qt owns the painter and file/network adapters.
+Weather updates with and without positions are supported; a positionless weather
+report waits for a station position before appearing on the map. This does not
+add the legacy proprietary weather station drivers or NWS alert handling.
+Dead-reckoning is a visual prediction for reports up to ten minutes old and does
+not alter the received position. Metric labels are used. Range/DF/Aloha overlays
+require their corresponding metadata, and Aloha remains indeterminate until the
+original channel-load threshold is reached. Qt's geographic painter replaces
+X11 drawing calls rather than wrapping the old pixmap renderer.
+
+Export All → Export to KML File writes active positions and stored trail segments
+using escaped KML/XML and atomic file replacement. Store to open databases is
+disabled, as it was in the original menu, because this frontend has no external
+database interfaces. Fetch Findu Trail uses the documented
+[raw.cgi interface](https://www.aprs.net/cgi.html), accepts timestamped HTML/raw
+packet responses, and merges up to 5,000 trail points in time order using the
+original C trail store. It preserves a newer live position, supports cancellation
+and timeouts, and never passes downloaded packets to message delivery. The
+response parser is tested with fixtures; live findU availability is not part of
+the automated checks.
+
+Configure → Reload Object/Item History reads `~/.xastir/config/object.log` in the
+original information-field format and restores objects/items for display only.
+It does not start the old periodic object transmitter. Clear Object/Item History
+empties that file without removing current map objects. Tactical calls are read
+from the original comma-separated `tactical_calls.log` on startup. Clear All
+Tactical Calls removes current labels and comments out active history lines;
+Clear Tactical Call History removes both labels and the file's contents. Clear
+All Trails clears C-owned trails; Clear All Stations resets received data while
+restoring the configured local station. Destructive menu actions ask for
+confirmation in the application.

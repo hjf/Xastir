@@ -6,6 +6,10 @@
 #include "legacy_menus.h"
 #include "message_service.h"
 #include "message_ui.h"
+#include "packet_monitor.h"
+#include "station_navigator.h"
+#include "station_menu.h"
+#include "aprs_decoder.h"
 #include <QTimer>
 
 #include <QLabel>
@@ -20,7 +24,10 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   auto *tiles = new TileSource(options.tiles, this);
   auto *mapWidget = new MapWidget(tiles, options.center, options.zoom, this);
   mapWidget_ = mapWidget;
+  if (options.config.selection) mapWidget_->setSelections(*options.config.selection);
+  if (options.config.display) mapWidget_->setDisplayOptions(*options.config.display);
   stations_ = new StationModel(mapWidget);
+  stations_->setOwnCallsign(options.config.callsign);
   mapWidget->setStationModel(stations_);
   localStation_ = options.config.localStation;
   if (localStation_) localStation_->local = true;
@@ -29,6 +36,24 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   setCentralWidget(mapWidget);
 
   createLegacyMenus(this);
+  auto *navigator = new StationNavigator(this, stations_, mapWidget_);
+  new StationMenu(this, stations_, mapWidget_, options.config.callsign, localStation_);
+  auto *following = new QLabel(this);
+  statusBar()->addPermanentWidget(following);
+  connect(navigator, &StationNavigator::followingChanged, following, [following](const QString &name) {
+    following->setText(name.isEmpty() ? QString() : tr("Following %1").arg(name));
+  });
+  auto *monitor = new PacketMonitor(this);
+  connect(monitor, &PacketMonitor::replayPacket, stations_, [this](const QByteArray &packet) {
+    const auto update = decodeAprs(packet);
+    if (!update) {
+      const auto weather = decodeAprsWeather(packet);
+      if (weather) stations_->updateWeather(weather->callsign,weather->weather,'F',weather->direct);
+      return;
+    }
+    if (update->removed) stations_->remove(update->station.callsign, update->station.kind);
+    else stations_->upsert(update->station);
+  });
 
   auto *position = new QLabel(this);
   auto *stationCount = new QLabel(this);
@@ -62,6 +87,9 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
     for (const auto &settings : options.config.agwpe) {
       auto *client = new AgwpeClient(settings, stations_, this);
       clients.append(client);
+      connect(client, &AgwpeClient::packetReceived, monitor, [monitor, settings](const QByteArray &packet) {
+        monitor->receive(packet, settings.deviceIndex);
+      });
       connect(client, &AgwpeClient::packetReceived, messages_, [this, settings](const QByteArray &packet) {
         messages_->receivePacket(packet, settings.deviceIndex);
       });

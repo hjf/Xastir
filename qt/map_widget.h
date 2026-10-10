@@ -3,6 +3,7 @@
 
 #include "map_projection.h"
 #include "aprs_symbols.h"
+#include "station_view.h"
 #include <QPointer>
 #include <QTimer>
 #include <QWidget>
@@ -23,9 +24,15 @@ public:
   void setView(map::Coordinate center, int zoom);
   void setStationModel(StationModel *stations);
   QPointF coordinateToScreen(map::Coordinate coordinate) const;
+  const Selections &selections() const { return selections_; }
+  const What_to_display &displayOptions() const { return display_; }
+  void setSelections(const Selections &value) { selections_ = value; update(); }
+  void setDisplayOptions(const What_to_display &value) { display_ = value; update(); }
+  bool stationVisible(const QString &name) const;
 
 signals:
   void viewChanged();
+  void manuallyPanned();
 
 protected:
   void paintEvent(QPaintEvent *event) override;
@@ -44,6 +51,8 @@ private:
   void zoomAt(int zoom, QPointF position);
   QPointF viewportOrigin() const;
   void drawStations(QPainter &painter);
+  void drawStationOverlays(QPainter &painter, const DataRow &row);
+  void drawRange(QPainter &painter, map::Coordinate center, double meters, double start = 0, double span = 360);
 
   TileSource *tiles_;
   QLabel *attribution_;
@@ -55,4 +64,6 @@ private:
   int wheelDelta_ = 0;
   QPointer<StationModel> stations_;
   AprsSymbols symbols_;
+  Selections selections_{0,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1};
+  What_to_display display_{1,0,1,1,1,0,0,0,0,0,1,0,1,0,0,0,0,0,0,1,0,0,1,1,1,0,0};
 };

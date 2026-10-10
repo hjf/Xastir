@@ -41,13 +41,15 @@ void TestAgwpe::config() {
   file.write("STATION_CALLSIGN:TEST-3\nSTATION_LAT:2726.543S\nSTATION_LONG:05859.431W\n"
     "STATION_GROUP:/\nSTATION_SYMBOL:-\nDEVICE0_TYPE:12\nDEVICE0_HOST:localhost\n"
     "DEVICE0_SPEED:8000\nDEVICE0_PASSWD:secret:colon\nDEVICE0_ONSTARTUP:1\nDEVICE0_RECONN:0\n"
-    "DEVICE2_TYPE:5\nDEVICE2_HOST:must-not-connect\n"); file.close();
+    "DEVICE2_TYPE:5\nDEVICE2_HOST:must-not-connect\nDISPLAY_OBJECTS:0\nDISPLAY_STATION_PHG:1\n"); file.close();
   XastirConfig config; QString error;
   QVERIFY2(readXastirConfig(file.fileName(), config, &error), qPrintable(error));
   QCOMPARE(config.callsign, "TEST-3"); QVERIFY(config.localStation);
   QVERIFY(std::abs(config.localStation->position.latitude + 27.4423833333) < 1e-8);
   QCOMPARE(config.agwpe.size(), 1); QVERIFY(config.agwpe[0].connectOnStartup);
   QVERIFY(!config.agwpe[0].reconnect); QCOMPARE(config.agwpe[0].password, QByteArray("secret:colon"));
+  QVERIFY(config.selection && !config.selection->objects);
+  QVERIFY(config.display && config.display->phg && config.display->weather_text);
   QVERIFY(file.open(QIODevice::Append)); file.write("DEVICE0_SPEED:99999\n"); file.close();
   QVERIFY(!readXastirConfig(file.fileName(), config, &error)); QVERIFY(!error.contains("secret"));
 }

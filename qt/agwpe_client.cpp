@@ -88,11 +88,15 @@ void AgwpeClient::receive()
     const QByteArray packet = decodeAgwpeAx25(payload);
     if (packet.isEmpty()) continue;
     ++packets_; emit packetReceived(packet);
-    const auto update = decodeAprs(packet);
+    auto update = decodeAprs(packet);
     if (update && stations_) {
+      update->station.dataVia = 'T';
       if (update->removed) stations_->remove(update->station.callsign, update->station.kind);
       else stations_->upsert(update->station);
       ++updates_;
+    } else if (stations_) {
+      const auto weather = decodeAprsWeather(packet);
+      if (weather) stations_->updateWeather(weather->callsign,weather->weather,'T',weather->direct);
     }
   }
   input_.remove(0, offset); processing_ = false;

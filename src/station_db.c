@@ -1797,6 +1797,7 @@ int xastir_station_update(XastirStationDb *db, const XastirStationReport *r, tim
   else row->course[0] = 0;
   row->pos_amb = r->ambiguity;
   if (r->speed) snprintf(row->speed, sizeof(row->speed), "%s", r->speed);
+  if (row->speed[0] && atof(row->speed) > 0) row->flag |= ST_MOVING;
   if (r->altitude) snprintf(row->altitude, sizeof(row->altitude), "%s", r->altitude);
   if (r->comment) {
     size_t length = strlen(r->comment);

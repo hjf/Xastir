@@ -7,6 +7,9 @@ add_library(xastir_qt_ui STATIC
   legacy_menus.cpp legacy_menus.h
   message_service.cpp message_service.h
   message_ui.cpp message_ui.h
+  packet_monitor.cpp packet_monitor.h
+  station_navigator.cpp station_navigator.h
+  station_menu.cpp station_menu.h
   aprs_symbols.cpp aprs_symbols.h
   station_model.cpp station_model.h
   xastir_config.cpp xastir_config.h
@@ -52,6 +55,18 @@ if(BUILD_TESTING)
   add_executable(test_messages tests/test_messages.cpp)
   target_link_libraries(test_messages PRIVATE xastir_qt_ui Qt6::Test)
   add_test(NAME messages COMMAND test_messages)
+  add_executable(test_packet_monitor tests/test_packet_monitor.cpp)
+  target_link_libraries(test_packet_monitor PRIVATE xastir_qt_ui Qt6::Test)
+  add_test(NAME packet_monitor COMMAND test_packet_monitor)
+  add_executable(test_station_navigator tests/test_station_navigator.cpp)
+  target_link_libraries(test_station_navigator PRIVATE xastir_qt_ui Qt6::Test)
+  add_test(NAME station_navigator COMMAND test_station_navigator)
+  add_executable(test_station_menu tests/test_station_menu.cpp)
+  target_link_libraries(test_station_menu PRIVATE xastir_qt_ui Qt6::Test)
+  add_test(NAME station_menu COMMAND test_station_menu)
+  set_tests_properties(station_menu PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
+  set_tests_properties(station_navigator PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
+  set_tests_properties(packet_monitor PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
   set_tests_properties(messages PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
   add_test(NAME agwpe COMMAND test_agwpe)
   set_tests_properties(agwpe PROPERTIES TIMEOUT 30)

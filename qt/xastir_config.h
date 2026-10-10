@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "station_model.h"
+#include "station_view.h"
 #include <QList>
 struct AgwpeSettings {
   QString host;
@@ -19,5 +20,7 @@ struct XastirConfig {
   std::optional<Station> localStation;
   QList<AgwpeSettings> agwpe;
   QString autoReplyText;
+  std::optional<Selections> selection;
+  std::optional<What_to_display> display;
 };
 bool readXastirConfig(const QString &path, XastirConfig &config, QString *error);

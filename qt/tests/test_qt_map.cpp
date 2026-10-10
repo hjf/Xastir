@@ -131,9 +131,12 @@ private slots:
     // All leaf actions share the placeholder behavior, including toggles and Exit.
     int leaves = 0, toggles = 0;
     for (auto *action : window.findChildren<QAction *>()) {
-      if (!action->property("legacyMenuId").isValid() || action->property("implemented").toBool()) continue;
-      ++leaves;
-      if (action->isCheckable()) ++toggles;
+      if (action->property("legacyMenuId").isValid()) {
+        ++leaves;
+        if (action->isCheckable()) ++toggles;
+      }
+      if (!action->property("legacyMenuId").isValid() || action->property("implemented").toBool()
+          || action->property("unavailable").toBool()) continue;
       action->trigger();
       auto *dialog = window.findChild<QMessageBox *>("notImplementedDialog");
       QVERIFY(dialog); QVERIFY(dialog->isVisible());
@@ -144,7 +147,7 @@ private slots:
       QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
       QVERIFY(window.isVisible());
     }
-    QVERIFY(leaves > 150); QVERIFY(toggles > 50);
+    QCOMPARE(leaves, 183); QCOMPARE(toggles, 79);
     window.close();
   }
 
@@ -161,6 +164,8 @@ private slots:
     MainWindow window(options);
     window.resize(640, 480);
     auto *canvas = window.findChild<MapWidget *>();
+    // This test isolates icon movement; retained trails have their own coverage.
+    auto display = canvas->displayOptions(); display.trail = false; canvas->setDisplayOptions(display);
     window.show();
     QTRY_COMPARE(window.statusBar()->currentMessage(), QStringLiteral("Map ready"));
     const QImage background = canvas->grab().toImage();
