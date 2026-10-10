@@ -11,6 +11,7 @@ add_library(xastir_qt_ui STATIC
   station_navigator.cpp station_navigator.h
   station_menu.cpp station_menu.h
   station_details.cpp station_details.h
+  interface_control.cpp interface_control.h
   aprs_symbols.cpp aprs_symbols.h
   station_model.cpp station_model.h
   xastir_config.cpp xastir_config.h
@@ -46,6 +47,14 @@ install(TARGETS xastir-qt RUNTIME DESTINATION bin BUNDLE DESTINATION .)
 
 if(BUILD_TESTING)
   find_package(Qt6 6.4 REQUIRED COMPONENTS Test)
+  qt_add_executable(test_connections tests/test_connections.cpp)
+  target_link_libraries(test_connections PRIVATE xastir_qt_ui Qt6::Test)
+  set_target_properties(test_connections PROPERTIES WIN32_EXECUTABLE FALSE)
+  if(TARGET Qt6::QOffscreenIntegrationPlugin)
+    qt_import_plugins(test_connections INCLUDE Qt6::QOffscreenIntegrationPlugin)
+  endif()
+  add_test(NAME connections COMMAND test_connections)
+  set_tests_properties(connections PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 40)
   qt_add_executable(test_qt_map tests/test_qt_map.cpp)
   target_link_libraries(test_qt_map PRIVATE xastir_qt_ui Qt6::Test)
   configure_file(examples/stations.json examples/stations.json COPYONLY)

@@ -293,3 +293,9 @@ void MessageUi::query(const QByteArray &queryText, const QString &title)
   });
   connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close); dialog->show();
 }
+
+void MessageUi::setClients(const QList<AgwpeClient *> &clients) {
+  for(const auto &dialog:conversations_) if(dialog) dialog->close();
+  conversations_.clear(); if(pending_) pending_->close();
+  clients_.clear(); for(auto *client:clients) clients_.append(client);
+}

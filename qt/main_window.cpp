@@ -10,6 +10,7 @@
 #include "station_navigator.h"
 #include "station_menu.h"
 #include "station_details.h"
+#include "interface_control.h"
 #include "aprs_decoder.h"
 #include <QTimer>
 
@@ -38,13 +39,13 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
 
   createLegacyMenus(this);
   auto *navigator = new StationNavigator(this, stations_, mapWidget_);
-  new StationMenu(this, stations_, mapWidget_, options.config.callsign, localStation_);
+  stationMenu_ = new StationMenu(this, stations_, mapWidget_, options.config.callsign, localStation_);
   auto *following = new QLabel(this);
   statusBar()->addPermanentWidget(following);
   connect(navigator, &StationNavigator::followingChanged, following, [following](const QString &name) {
     following->setText(name.isEmpty() ? QString() : tr("Following %1").arg(name));
   });
-  auto *monitor = new PacketMonitor(this);
+  auto *monitor = new PacketMonitor(this); monitor_=monitor;
   connect(monitor, &PacketMonitor::replayPacket, stations_, [this](const QByteArray &packet) {
     const auto update = decodeAprs(packet);
     if (!update) {
@@ -83,33 +84,17 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   updatePosition();
   statusBar()->showMessage(tr("Loading map…"));
   messages_ = new MessageService(options.config.callsign, this);
-  QList<AgwpeClient *> clients;
-  if (!options.config.agwpe.isEmpty()) {
-    for (const auto &settings : options.config.agwpe) {
-      auto *client = new AgwpeClient(settings, stations_, this);
-      clients.append(client);
-      connect(client, &AgwpeClient::packetReceived, monitor, [monitor, settings](const QByteArray &packet) {
-        monitor->receive(packet, settings.deviceIndex);
-      });
-      connect(client, &AgwpeClient::packetReceived, messages_, [this, settings](const QByteArray &packet) {
-        messages_->receivePacket(packet, settings.deviceIndex);
-      });
-      auto *label = new QLabel(tr("AGWPE stopped"), this);
-      statusBar()->addWidget(label);
-      connect(client, &AgwpeClient::statusChanged, label, &QLabel::setText);
-      if (settings.connectOnStartup) QTimer::singleShot(0, client, [client] { client->start(); });
-    }
-  }
-  QList<QPointer<AgwpeClient>> routes;
-  for (auto *client : clients) routes.append(client);
-  messages_->setTransport([routes](const QByteArray &info, int device, const QString &path, QString *error) {
-    for (const auto &client : routes)
-      if (client && client->settings().deviceIndex == device) return client->transmit(info, path, error);
-    if (error) *error = QObject::tr("AGWPE interface is no longer available.");
-    return false;
+  configureAgwpe(options.config);
+  messageUi_ = new MessageUi(this, messages_, clients_, options.config.autoReplyText);
+  new StationDetails(this, stations_, mapWidget_, navigator, messageUi_, options.config.callsign);
+  auto *interfaces=new InterfaceControl(this,options.config);
+  connect(interfaces,&InterfaceControl::configurationChanged,this,[this](const XastirConfig &config) {
+    if(config.callsign!=messages_->callsign()) return; // Identity changes take effect on restart.
+    localStation_=config.localStation; if(localStation_) {localStation_->local=true;stations_->upsert(*localStation_);}
+    stationMenu_->setLocalStation(localStation_);
+    configureAgwpe(config);
   });
-  auto *messageUi = new MessageUi(this, messages_, clients, options.config.autoReplyText);
-  new StationDetails(this, stations_, mapWidget_, navigator, messageUi, options.config.callsign);
+
 }
 
 bool MainWindow::loadStations(const QString &path, QString *error, bool centerOnStations)
@@ -120,4 +105,19 @@ bool MainWindow::loadStations(const QString &path, QString *error, bool centerOn
   if (centerOnStations && !stations_->stations().isEmpty())
     mapWidget_->setView(stations_->stations().first().position, mapWidget_->zoomLevel());
   return true;
+}
+
+void MainWindow::configureAgwpe(const XastirConfig &config) {
+  for(auto *client:clients_) { client->stop(); delete client; } clients_.clear();
+  for(auto *label:interfaceLabels_) {statusBar()->removeWidget(label);delete label;} interfaceLabels_.clear();
+  for(const auto &settings:config.agwpe) {
+    auto *client=new AgwpeClient(settings,stations_,this);clients_.append(client);
+    connect(client,&AgwpeClient::packetReceived,monitor_,[this,settings](const QByteArray &packet){monitor_->receive(packet,settings.deviceIndex);});
+    connect(client,&AgwpeClient::packetReceived,messages_,[this,settings](const QByteArray &packet){messages_->receivePacket(packet,settings.deviceIndex);});
+    auto *label=new QLabel(tr("AGWPE stopped"),this);statusBar()->addWidget(label);interfaceLabels_.append(label);
+    connect(client,&AgwpeClient::statusChanged,label,&QLabel::setText);
+    if(settings.connectOnStartup)QTimer::singleShot(0,client,[client]{client->start();});
+  }
+  messages_->setTransport([this](const QByteArray &info,int device,const QString &path,QString *error){for(auto *client:clients_)if(client->settings().deviceIndex==device)return client->transmit(info,path,error);if(error)*error=tr("AGWPE interface is no longer available.");return false;});
+  if(messageUi_)messageUi_->setClients(clients_);
 }

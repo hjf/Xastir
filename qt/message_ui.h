@@ -14,6 +14,7 @@ public:
             QList<AgwpeClient *> clients, const QString &legacyAutoReply);
   void openConversation(QString peer = {}, bool group = false);
   void openPending();
+  void setClients(const QList<AgwpeClient *> &clients);
 private:
   void editAutoReply();
   void query(const QByteArray &query, const QString &title);

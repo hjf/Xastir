@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "main_window.h"
+#include "interface_control.h"
 
 #include <QApplication>
 #include <QCommandLineParser>
@@ -81,6 +82,14 @@ int main(int argc, char *argv[])
         options.center.latitude = std::clamp(options.center.latitude, -map::MaxLatitude, map::MaxLatitude);
         if (!parser.isSet("zoom")) options.zoom = 12;
       }
+    }
+  }
+  if (!parser.isSet("no-config")) {
+    readQtConfiguration(options.config);
+    if(options.config.localStation) {
+      if(!parser.isSet("latitude")) options.center.latitude=std::clamp(options.config.localStation->position.latitude,-map::MaxLatitude,map::MaxLatitude);
+      if(!parser.isSet("longitude")) options.center.longitude=options.config.localStation->position.longitude;
+      if(!parser.isSet("zoom")) options.zoom=12;
     }
   }
   if (parser.isSet("agwpe-tx"))

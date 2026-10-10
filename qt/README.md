@@ -416,3 +416,20 @@ Clear Tactical Call History removes both labels and the file's contents. Clear
 All Trails clears C-owned trails; Clear All Stations resets received data while
 restoring the configured local station. Destructive menu actions ask for
 confirmation in the application.
+
+## Station details and interface control
+
+Click a visible station, object, or item icon to inspect its live shared C
+station record. Details include position, last heard, owner, course/speed,
+altitude, comment, path, weather, and distance/bearing from your local station.
+The dialog offers messaging, tracking, and trail display.
+
+Interface → Interface Control configures the local station and AGWPE devices.
+Save applies connection changes immediately and stores them in Qt application
+settings. New message windows use the updated devices; message history and
+pending delivery state are retained. Connections start when their Startup
+checkbox is enabled. Removing an interface stops its connection. Changing the
+station callsign takes effect after restarting, preserving queued message
+identity. Saved Qt settings override imported CNF station/interface values;
+`--no-config` skips both configuration sources. Transmission starts disabled
+on new devices and requires explicitly checking Enable TX.

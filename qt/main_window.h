@@ -9,6 +9,8 @@
 class MapWidget;
 class StationModel;
 class MessageService;
+class QLabel;
+class MessageUi; class PacketMonitor; class AgwpeClient; class StationMenu;
 
 struct ApplicationOptions
 {
@@ -29,6 +31,12 @@ public:
   bool loadStations(const QString &path, QString *error = nullptr, bool centerOnStations = false);
 
 private:
+  void configureAgwpe(const XastirConfig &config);
+  QList<AgwpeClient *> clients_;
+  QList<QLabel *> interfaceLabels_;
+  MessageUi *messageUi_ = nullptr;
+  PacketMonitor *monitor_;
+  StationMenu *stationMenu_;
   MapWidget *mapWidget_;
   StationModel *stations_;
   MessageService *messages_;

@@ -83,6 +83,7 @@ bool readXastirConfig(const QString &path, XastirConfig &config, QString *error)
   if (lat && lon && !result.callsign.isEmpty()) {
     Station station;
     station.callsign = result.callsign;
+    station.comment = values.value("STATION_COMMENTS");
     station.position = {*lat, *lon};
     if (values.value("STATION_GROUP", "/").isEmpty() || values.value("STATION_SYMBOL", "-").isEmpty())
       return fail(QStringLiteral("Missing local station symbol."));

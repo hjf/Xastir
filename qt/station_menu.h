@@ -11,6 +11,7 @@ class StationMenu : public QObject {
 public:
   StationMenu(QMainWindow *window, StationModel *stations, MapWidget *map,
               QString callsign, std::optional<Station> local, QString historyDirectory = {});
+  void setLocalStation(std::optional<Station> local) { local_ = std::move(local); }
   bool exportKml(const QString &path, QString *error = nullptr) const;
   bool reloadObjects(const QString &path, QString *error = nullptr);
   bool reloadTactical(const QString &path, QString *error = nullptr);
