@@ -201,6 +201,26 @@ private slots:
     store.flush();
     QCOMPARE(store.messages("LOCAL").size(), 3);
   }
+  void internetReplyDoesNotUseRfRoute()
+  {
+    MessageService service("LOCAL");
+    QList<int> devices;
+    QStringList paths;
+    service.setTransport(
+        [&](const auto &, int device, const auto &path, auto *)
+        {
+          devices.append(device);
+          paths.append(path);
+          return true;
+        });
+    QString error;
+    QVERIFY(service.sendMessage("REMOTE", "RF conversation", false, 0, "WIDE1-1", &error));
+    devices.clear();
+    paths.clear();
+    service.receiveInternetPacket("REMOTE>APRS,TCPIP*::LOCAL    :internet{X1", 0, true);
+    QCOMPARE(devices, QList<int>{256});
+    QCOMPARE(paths, QStringList{QString()});
+  }
   void archiveBeyondMemoryLimit()
   {
     QTemporaryDir dir;

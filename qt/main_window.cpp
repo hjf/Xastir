@@ -99,6 +99,7 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   connect(beacons_,&BeaconControl::statusChanged,statusBar(),[this](const QString &message){statusBar()->showMessage(message,10000);});
   configureAgwpe(options.config);
   messageUi_ = new MessageUi(this, messages_, clients_, options.config.autoReplyText);
+  messageUi_->setClients(clients_,aprsis_);
   new StationDetails(this, stations_, mapWidget_, navigator, messageUi_, options.config.callsign);
   auto *interfaces=new InterfaceControl(this,options.config);
   connect(interfaces,&InterfaceControl::configurationChanged,this,[this](const XastirConfig &config) {
@@ -128,7 +129,8 @@ void MainWindow::configureAgwpe(const XastirConfig &config) {
     aprsis_=new AprsisClient(config.aprsis,config.callsign,stations_,this);
     aprsisLabel_=new QLabel(tr("APRS-IS stopped"),this);statusBar()->addWidget(aprsisLabel_);
     connect(aprsis_,&AprsisClient::statusChanged,aprsisLabel_,&QLabel::setText);
-    connect(aprsis_,&AprsisClient::packetReceived,monitor_,[this](const QByteArray &packet){monitor_->receive(packet,256);if(history_)history_->recordPacket(packet,256);messages_->receiveInternetPacket(packet);});
+    connect(aprsis_,&AprsisClient::packetReceived,monitor_,[this](const QByteArray &packet){monitor_->receive(packet,256);if(history_)history_->recordPacket(packet,256);messages_->receiveInternetPacket(packet,0,aprsis_ && aprsis_->canTransmit());});
+    if(history_)connect(aprsis_,&AprsisClient::packetTransmitted,history_,[this](const QByteArray &packet){history_->recordPacket(packet,256,0,true);});
     QTimer::singleShot(0,aprsis_,&AprsisClient::start);
   }
   for(auto *client:clients_) { client->stop(); delete client; } clients_.clear();
@@ -142,6 +144,6 @@ void MainWindow::configureAgwpe(const XastirConfig &config) {
     connect(client,&AgwpeClient::statusChanged,label,&QLabel::setText);
     if(settings.connectOnStartup)QTimer::singleShot(0,client,[client]{client->start();});
   }
-  messages_->setTransport([this](const QByteArray &info,int device,const QString &path,QString *error){if(transmitDisabled_){if(error)*error=tr("All transmission is disabled.");return false;}for(auto *client:clients_)if(client->settings().deviceIndex==device)return client->transmit(info,path,error);if(error)*error=tr("AGWPE interface is no longer available.");return false;});
-  if(messageUi_)messageUi_->setClients(clients_);
+  messages_->setTransport([this](const QByteArray &info,int device,const QString &path,QString *error){if(transmitDisabled_){if(error)*error=tr("All transmission is disabled.");return false;}if(device==256){if(aprsis_)return aprsis_->transmit(info,error);if(error)*error=tr("APRS-IS interface is unavailable.");return false;}for(auto *client:clients_)if(client->settings().deviceIndex==device)return client->transmit(info,path,error);if(error)*error=tr("AGWPE interface is no longer available.");return false;});
+  if(messageUi_)messageUi_->setClients(clients_,aprsis_);
 }

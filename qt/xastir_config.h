@@ -21,6 +21,8 @@ struct AprsisSettings {
   QString filter = "r/0/0/100";
   bool enabled = false;
   bool reconnect = true;
+  bool transmitEnabled = false;
+  QString passcode;
 };
 struct XastirConfig {
   AprsisSettings aprsis;

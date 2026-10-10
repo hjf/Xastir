@@ -41,7 +41,9 @@ QJsonObject serialize(const XastirConfig &c)
                                             {"port", c.aprsis.port},
                                             {"filter", c.aprsis.filter},
                                             {"enabled", c.aprsis.enabled},
-                                            {"reconnect", c.aprsis.reconnect}}}};
+                                            {"reconnect", c.aprsis.reconnect},
+                                            {"tx", c.aprsis.transmitEnabled},
+                                            {"passcode", c.aprsis.passcode}}}};
   if (c.localStation)
   {
     const auto &s = *c.localStation;
@@ -87,6 +89,8 @@ void readQtConfiguration(XastirConfig &c)
   c.aprsis.filter = internet["filter"].toString("r/0/0/100");
   c.aprsis.enabled = internet["enabled"].toBool();
   c.aprsis.reconnect = internet["reconnect"].toBool(true);
+  c.aprsis.transmitEnabled = internet["tx"].toBool();
+  c.aprsis.passcode = internet["passcode"].toString();
   c.localStation.reset();
   if (o.contains("local"))
   {
@@ -152,7 +156,7 @@ void InterfaceControl::open()
   form->addRow(tr("APRS table + symbol"), symbol);
   auto *comment = new QLineEdit(local.comment, d);
   form->addRow(tr("Position comment"), comment);
-  auto *internet = new QCheckBox(tr("Connect to APRS-IS (receive only)"), d);
+  auto *internet = new QCheckBox(tr("Connect to APRS-IS"), d);
   internet->setObjectName("aprsisEnabled");
   internet->setChecked(config_.aprsis.enabled);
   form->addRow(internet);
@@ -163,6 +167,16 @@ void InterfaceControl::open()
   internetPort->setRange(1, 65535);
   internetPort->setValue(config_.aprsis.port);
   form->addRow(tr("APRS-IS TCP port"), internetPort);
+  auto *internetTx =
+      new QCheckBox(tr("Enable APRS-IS message transmission and acknowledgments"), d);
+  internetTx->setObjectName("aprsisTx");
+  internetTx->setChecked(config_.aprsis.transmitEnabled);
+  form->addRow(internetTx);
+  auto *passcode = new QLineEdit(config_.aprsis.passcode, d);
+  passcode->setObjectName("aprsisPasscode");
+  passcode->setEchoMode(QLineEdit::Password);
+  passcode->setMaxLength(5);
+  form->addRow(tr("APRS-IS passcode"), passcode);
   QString initialFilter = config_.aprsis.filter;
   if (!config_.aprsis.enabled && initialFilter == "r/0/0/100")
     initialFilter =
@@ -237,7 +251,7 @@ void InterfaceControl::open()
   connect(buttons, &QDialogButtonBox::rejected, d, &QDialog::reject);
   connect(buttons, &QDialogButtonBox::accepted, d,
           [this, d, call, lat, lon, local, symbol, comment, table, internet, internetHost,
-           internetPort, filter, reconnect]
+           internetPort, filter, reconnect, internetTx, passcode]
           {
             XastirConfig next = config_;
             next.callsign = call->text().trimmed().toUpper();
@@ -260,7 +274,9 @@ void InterfaceControl::open()
             {
             }
             next.aprsis = {internetHost->text().trimmed(), quint16(internetPort->value()),
-                           filter->text().trimmed(), internet->isChecked(), reconnect->isChecked()};
+                           filter->text().trimmed(),       internet->isChecked(),
+                           reconnect->isChecked(),         internetTx->isChecked(),
+                           passcode->text().trimmed()};
             if (error.isEmpty() && next.aprsis.enabled)
               AprsisClient::validate(next.aprsis, next.callsign, &error);
             next.localStation = station;

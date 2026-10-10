@@ -23,6 +23,8 @@ bool AprsisClient::validate(const AprsisSettings &s, const QString &call, QStrin
   for (const auto c : s.filter)
     if (c.unicode() < 32 || c.unicode() > 126)
       return bad(tr("The APRS-IS filter must contain printable ASCII characters."));
+  if (s.transmitEnabled && !QRegularExpression("^[0-9]{1,5}$").match(s.passcode).hasMatch())
+    return bad(tr("Enter your APRS-IS passcode to enable message transmission."));
   return true;
 }
 AprsisClient::AprsisClient(AprsisSettings settings, QString call, StationModel *stations,
@@ -39,6 +41,7 @@ AprsisClient::AprsisClient(AprsisSettings settings, QString call, StationModel *
           [this]
           {
             socket_.setSocketOption(QAbstractSocket::KeepAliveOption, 1);
+            socket_.setSocketOption(QAbstractSocket::LowDelayOption, 1);
             timeout_.start(10000);
             emit statusChanged(tr("APRS-IS connected; awaiting server greeting"));
           });
@@ -77,6 +80,7 @@ void AprsisClient::stop()
   timeout_.stop();
   input_.clear();
   loggedIn_ = false;
+  verified_ = false;
   {
     QSignalBlocker blocker(socket_);
     socket_.abort();
@@ -89,6 +93,7 @@ void AprsisClient::connectToServer()
     return;
   input_.clear();
   loggedIn_ = false;
+  verified_ = false;
   timeout_.start(10000);
   emit statusChanged(tr("APRS-IS %1:%2 — connecting").arg(settings_.host).arg(settings_.port));
   socket_.connectToHost(settings_.host, settings_.port);
@@ -98,6 +103,7 @@ void AprsisClient::fail(const QString &reason)
   timeout_.stop();
   input_.clear();
   loggedIn_ = false;
+  verified_ = false;
   {
     QSignalBlocker blocker(socket_);
     socket_.abort();
@@ -143,20 +149,32 @@ void AprsisClient::receive()
     {
       if (!loggedIn_)
       {
-        const QByteArray login = "user " + callsign_.toLatin1() +
-                                 " pass -1 vers XastirQt 0.1 filter " +
-                                 settings_.filter.toLatin1() + "\r\n";
+        const QByteArray login =
+            "user " + callsign_.toLatin1() + " pass " +
+            (settings_.transmitEnabled ? settings_.passcode.toLatin1() : QByteArray("-1")) +
+            " vers XastirQt 0.1 filter " + settings_.filter.toLatin1() + "\r\n";
         socket_.write(login);
         loggedIn_ = true;
         retryDelay_ = 2000;
-        emit statusChanged(tr("APRS-IS — receiving only"));
+        emit statusChanged(settings_.transmitEnabled ? tr("APRS-IS — awaiting verified login")
+                                                     : tr("APRS-IS — receiving only"));
+      }
+      else if (line.startsWith("# logresp "))
+      {
+        const auto fields = line.mid(10).simplified().split(' ');
+        verified_ = fields.size() >= 2 && fields[0].toUpper() == callsign_.toLatin1() &&
+                    fields[1].split(',').first().toLower() == "verified";
+        emit statusChanged(
+            canTransmit() ? tr("APRS-IS — verified; message transmission enabled")
+                          : tr("APRS-IS — receiving only (login not verified or TX disabled)"));
       }
       continue;
     }
     if (line.isEmpty() || !loggedIn_)
       continue;
     emit packetReceived(line);
-    if(stations_) stations_->applyPacket(line,'I');
+    if (stations_)
+      stations_->applyPacket(line, 'I');
   }
   input_.remove(0, offset);
   processing_ = false;
@@ -168,4 +186,29 @@ void AprsisClient::receive()
   }
   if (input_.contains('\n'))
     QTimer::singleShot(0, this, &AprsisClient::receive);
+}
+
+bool AprsisClient::transmit(const QByteArray &info, QString *error)
+{
+  auto reject = [error](const QString &reason)
+  {
+    if (error)
+      *error = reason;
+    return false;
+  };
+  if (!settings_.transmitEnabled)
+    return reject(tr("APRS-IS message transmission is disabled."));
+  if (!canTransmit())
+    return reject(tr("APRS-IS requires a connected, verified login before transmitting."));
+  if (info.isEmpty() || info.size() > 256 || info.contains('\0') || info.contains('\r') ||
+      info.contains('\n') || !info.startsWith(':'))
+    return reject(tr("Invalid APRS message information field."));
+  const auto packet = callsign_.toLatin1() + ">APXQT1,TCPIP*:" + info;
+  if (packet.size() > 510 || socket_.bytesToWrite() > 65536)
+    return reject(tr("APRS-IS transmit buffer or packet limit exceeded."));
+  const auto wire = packet + "\r\n";
+  if (socket_.write(wire) != wire.size())
+    return reject(tr("Cannot queue message to APRS-IS."));
+  emit packetTransmitted(packet);
+  return true;
 }

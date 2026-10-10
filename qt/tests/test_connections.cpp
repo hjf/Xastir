@@ -7,8 +7,10 @@
 #include "main_window.h"
 #include "message_service.h"
 #include <QAction>
+#include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QSettings>
 #include <QSignalSpy>
@@ -142,6 +144,61 @@ private slots:
     peer->write(QByteArray(512, 'x'));
     QTRY_VERIFY(!client.connected());
     client.stop();
+  }
+  void internetMessagesAndAcks()
+  {
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    ApplicationOptions options;
+    options.config.callsign = "LU3GHF-3";
+    options.config.aprsis.enabled = true;
+    options.config.aprsis.host = "127.0.0.1";
+    options.config.aprsis.port = server.serverPort();
+    options.config.aprsis.reconnect = false;
+    options.config.aprsis.transmitEnabled = true;
+    options.config.aprsis.passcode = "12345";
+    MainWindow window(options);
+    QTRY_VERIFY(server.hasPendingConnections());
+    auto *peer = server.nextPendingConnection();
+    peer->write("# test server\r\n");
+    QTRY_VERIFY(peer->canReadLine());
+    QVERIFY(peer->readLine().contains("user LU3GHF-3 pass 12345"));
+    auto *client = window.findChild<AprsisClient *>();
+    QVERIFY(client);
+    QString error;
+    QVERIFY(!client->transmit(":LU3GHF-5 :ack1", &error));
+    peer->write("# logresp LU3GHF-3 unverified, server TEST\r\n");
+    QTest::qWait(20);
+    QVERIFY(!client->canTransmit());
+    peer->write("LU3GHF-5>APDR16,TCPIP*,qAC,T2ROMANIA::LU3GHF-3 :aprs{1\r\n");
+    QTRY_COMPARE(window.messageService()->messages().size(), 1);
+    auto *dialog = window.findChild<QDialog *>("messageConversation");
+    QVERIFY(dialog);
+    QVERIFY(dialog->isVisible());
+    auto *interfaces = dialog->findChild<QComboBox *>("messageInterface");
+    QVERIFY(interfaces);
+    QCOMPARE(interfaces->currentData().toInt(), 256);
+    QCOMPARE(peer->bytesAvailable(), qint64(0));
+    peer->write("# logresp LU3GHF-3 verified, server TEST\r\n");
+    QTRY_VERIFY(client->canTransmit());
+    peer->write("LU3GHF-5>APDR16,TCPIP*,qAC,T2ROMANIA::LU3GHF-3 :second{2\r\n");
+    QTRY_VERIFY(peer->canReadLine());
+    QCOMPARE(peer->readLine(), QByteArray("LU3GHF-3>APXQT1,TCPIP*::LU3GHF-5 :ack2\r\n"));
+    QCOMPARE(window.messageService()->messages().size(), 2);
+    dialog->findChild<QLineEdit *>("messageText")->setText("reply");
+    dialog->findChild<QPushButton *>("sendMessageButton")->click();
+    QTRY_VERIFY(peer->canReadLine());
+    const auto outgoing = peer->readLine();
+    QVERIFY(outgoing.startsWith("LU3GHF-3>APXQT1,TCPIP*::LU3GHF-5 :reply{"));
+    const auto id = window.messageService()->messages().last().id;
+    peer->write("LU3GHF-5>APDR16,TCPIP*::LU3GHF-3 :ack" + id.toLatin1() + "\r\n");
+    QTRY_COMPARE(window.messageService()->messages().last().status, QString("Acknowledged"));
+    window.findChild<QAction *>("PULDNTNT03")->trigger();
+    peer->write("LU3GHF-5>APDR16,TCPIP*::LU3GHF-3 :blocked{3\r\n");
+    QTRY_COMPARE(window.messageService()->messages().size(), 4);
+    QCOMPARE(peer->bytesAvailable(), qint64(0));
+    window.findChild<QAction *>("PULDNTNT03")->trigger();
+    QVERIFY(!client->transmit(":LU3GHF-5 :bad\r\n", &error));
   }
   void invalidInternetLogin()
   {

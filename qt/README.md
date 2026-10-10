@@ -436,15 +436,21 @@ on new devices and requires explicitly checking Enable TX.
 
 ## APRS-IS reception
 
-Interface Control also offers a receive-only APRS-IS connection. Enter a server
+Interface Control also offers an APRS-IS connection, receive-only by default. Enter a server
 host, TCP port (normally 14580), and server-side filter, for example
 `r/-34.60/-58.38/100` for a 100 km radius. The checkbox enables startup reception;
 saving applies connection changes immediately when the station identity is unchanged.
-The login uses `pass -1` as specified by
+Receive-only login uses `pass -1` as specified by
 [APRS-IS connection documentation](https://www.aprs-is.net/Connecting.aspx).
 Internet reports use the same shared C station database and packet monitor,
-including objects, items, and weather. Reception is not gated onto RF, and this
-connection cannot transmit messages or beacons. Incoming lines and buffering
+including objects, items, and weather. Reception is not gated onto RF. Optional message transmission and ACKs require
+checking Enable APRS-IS message transmission and entering your callsign passcode
+in Interface Control. Sending waits for a matching verified server login.
+Messages addressed to your exact callsign/SSID open the conversation even in
+receive-only mode; the APRS-IS interface is selected for Internet conversations.
+Verified connections use the shared C message engine for ACKs, retries, and
+delivery status. Internet replies never select a prior RF route. Disable
+Transmit ALL also blocks APRS-IS messages and ACKs. Position beacons remain AGWPE-only. Incoming lines and buffering
 are bounded and processed in batches, with timeout and reconnect handling.
 
 ## Position beacons and transmit controls
@@ -460,7 +466,7 @@ converters and extracted packet formatter. The formatter preserves the legacy
 beacons require explicitly enabling and applying a schedule (60–86,400 seconds);
 the first automatic transmission waits one full interval. Settings persist across
 restarts. Every send checks the current transmit controls and device connection.
-APRS-IS remains receive-only.
+APRS-IS supports explicitly enabled messages/ACKs, but not position beacons.
 
 
 ## Persistent history

@@ -38,7 +38,7 @@ public:
   QString messageCounter() const;
   quint64 nextMessageKey() const;
   void restoreArchive(const QJsonArray &records, const QString &counter, quint64 nextKey);
-  void receiveInternetPacket(const QByteArray &packet, qint64 timestamp = 0);
+  void receiveInternetPacket(const QByteArray &packet, qint64 timestamp = 0, bool bidirectional = false);
   bool setAutoReplyText(QString text, QString *error = nullptr);
   const QString &autoReplyText() const { return autoText_; }
   void setAutoReply(bool enabled);

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "message_ui.h"
+#include "aprsis_client.h"
 #include <QAction>
 #include <QCheckBox>
 #include <QComboBox>
@@ -126,6 +127,7 @@ void MessageUi::populateInterfaces(QComboBox *combo)
     combo->addItem(tr("Device %1 — %2:%3 (radio %4)%5").arg(s.deviceIndex).arg(s.host).arg(s.port)
       .arg(s.radioPort + 1).arg(s.transmitEnabled ? QString() : tr(" — receive only")), s.deviceIndex);
   }
+  if(internet_)combo->addItem(tr("APRS-IS%1").arg(internet_->transmitEnabled()?QString():tr(" — receive only")),256);
   if (combo->count() == 0) combo->addItem(tr("No AGWPE interfaces configured"), -1);
   for (int i = 0; i < combo->count(); ++i) {
     for (const auto &client : clients_) if (client && client->settings().deviceIndex == combo->itemData(i).toInt()
@@ -152,6 +154,9 @@ void MessageUi::openConversation(QString peer, bool group)
   if (group) { QStringList groups(service_->groups().values()); groups.sort(); recipient->addItems(groups); }
   recipient->setCurrentText(peer);
   auto *interfaces = new QComboBox(dialog); interfaces->setObjectName("messageInterface"); populateInterfaces(interfaces);
+  for(auto i=service_->messages().crbegin();i!=service_->messages().crend();++i)if(i->sender==peer && i->recipient==service_->callsign()) {
+    const int index=interfaces->findData(i->device);if(index>=0)interfaces->setCurrentIndex(index);break;
+  }
   auto *path = new QLineEdit(dialog); path->setObjectName("messagePath"); path->setPlaceholderText(tr("Empty = direct, e.g. WIDE1-1,WIDE2-1"));
   form->addRow(group ? tr("Group:") : tr("To callsign:"), recipient);
   form->addRow(tr("Interface:"), interfaces); form->addRow(tr("Path:"), path); layout->addLayout(form);
@@ -185,6 +190,12 @@ void MessageUi::openConversation(QString peer, bool group)
     refresh();
   }); refresh();
   auto updateConnection = [this, interfaces, path, connection, send](bool resetPath) {
+    if(interfaces->currentData().toInt()==256) {
+      send->setEnabled(internet_ && internet_->transmitEnabled());
+      path->setEnabled(false);if(resetPath)path->clear();
+      connection->setText(internet_ && internet_->canTransmit()?tr("APRS-IS verified — ready to send."):tr("APRS-IS receive only or awaiting verification. Enable TX and enter your passcode in Interface Control."));return;
+    }
+    path->setEnabled(true);
     auto *client = selectedClient(interfaces);
     const bool enabled = client && client->settings().transmitEnabled;
     if (enabled && !client->connected()) client->start();
@@ -197,6 +208,7 @@ void MessageUi::openConversation(QString peer, bool group)
   connect(interfaces, &QComboBox::currentIndexChanged, dialog, [updateConnection] { updateConnection(true); });
   for (const auto &client : clients_) if (client)
     connect(client, &AgwpeClient::statusChanged, dialog, [updateConnection] { updateConnection(false); });
+  if(internet_)connect(internet_,&AprsisClient::statusChanged,dialog,[updateConnection]{updateConnection(false);});
   updateConnection(true);
   connect(send, &QPushButton::clicked, dialog, [this, dialog, recipient, interfaces, text, path, group] {
     QString error;
@@ -294,7 +306,8 @@ void MessageUi::query(const QByteArray &queryText, const QString &title)
   connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close); dialog->show();
 }
 
-void MessageUi::setClients(const QList<AgwpeClient *> &clients) {
+void MessageUi::setClients(const QList<AgwpeClient *> &clients, AprsisClient *internet) {
+  internet_=internet;
   for(const auto &dialog:conversations_) if(dialog) dialog->close();
   conversations_.clear(); if(pending_) pending_->close();
   clients_.clear(); for(auto *client:clients) clients_.append(client);

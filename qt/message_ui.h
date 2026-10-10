@@ -5,7 +5,7 @@
 #include <QDialog>
 #include <QPointer>
 #include <QSettings>
-class QMainWindow;
+class QMainWindow; class AprsisClient;
 class QComboBox;
 class MessageUi : public QObject {
   Q_OBJECT
@@ -14,7 +14,7 @@ public:
             QList<AgwpeClient *> clients, const QString &legacyAutoReply);
   void openConversation(QString peer = {}, bool group = false);
   void openPending();
-  void setClients(const QList<AgwpeClient *> &clients);
+  void setClients(const QList<AgwpeClient *> &clients, AprsisClient *internet = nullptr);
 private:
   void editAutoReply();
   void query(const QByteArray &query, const QString &title);
@@ -26,5 +26,6 @@ private:
   QList<QPointer<AgwpeClient>> clients_;
   QHash<QString, QPointer<QDialog>> conversations_;
   QPointer<QDialog> pending_;
+  QPointer<AprsisClient> internet_;
   QSettings settings_;
 };

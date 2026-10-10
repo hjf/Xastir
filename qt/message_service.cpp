@@ -170,8 +170,9 @@ void MessageService::restoreArchive(const QJsonArray &records, const QString &co
   xastir_messages_restore_counter(core_.get(),counter.toLatin1().constData(),nextKey);
   sync();
 }
-void MessageService::receiveInternetPacket(const QByteArray &original, qint64 timestamp)
+void MessageService::receiveInternetPacket(const QByteArray &original, qint64 timestamp, bool bidirectional)
 {
+  if(bidirectional) {receivePacket(original,256);return;}
   QByteArray packet=original;
   if(!timestamp)timestamp=clock_();
   for(int depth=0;depth<=4;++depth) {
@@ -190,13 +191,17 @@ void MessageService::receiveInternetPacket(const QByteArray &original, qint64 ti
     }
     // Passive import intentionally bypasses delivery, peer-route and ACK state.
     Message m{};m.key=next;m.device=256;m.timestamp_ms=timestamp;m.sec_heard=timestamp/1000;
-    m.status=XMSG_HEARD;
+    m.status=QString::fromLatin1(decoded.recipient)==callsign_ ? XMSG_RECEIVED : XMSG_HEARD;
     std::snprintf(m.from_call_sign,sizeof(m.from_call_sign),"%s",sender.toLatin1().constData());
     std::snprintf(m.call_sign,sizeof(m.call_sign),"%s",decoded.recipient);
     std::snprintf(m.message_line,sizeof(m.message_line),"%s",decoded.text);
     std::snprintf(m.seq,sizeof(m.seq),"%s",decoded.id);
     m.group=xastir_messages_is_group(core_.get(),decoded.recipient);
-    xastir_messages_restore(core_.get(),&m);sync();return;
+    if(xastir_messages_restore(core_.get(),&m)) {
+      sync();
+      if(m.status==XMSG_RECEIVED || m.group)emit incomingMessage(m.group?QString::fromLatin1(decoded.recipient):sender,m.group);
+    }
+    return;
   }
 }
 

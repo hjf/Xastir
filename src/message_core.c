@@ -291,7 +291,7 @@ int xastir_messages_restore(XastirMessages *c, const Message *saved)
   m.pending = 0;
   m.next_retry_ms = 0;
   if (!xastir_msg_input_database(&c->history, &m)) return 0;
-  if (!m.outgoing && m.device >= 0 && m.device < 256) {
+  if (!m.outgoing && m.device >= 0 && m.device <= 256) {
     struct Seen *seen = &c->seen[c->seen_next++ % CACHE_LIMIT];
     memset(seen, 0, sizeof(*seen));
     seen->used = 1; seen->time = m.timestamp_ms;
@@ -577,8 +577,10 @@ void xastir_messages_receive(XastirMessages *c, const char *original, int device
     copy(seen->id, sizeof(seen->id), decoded.id); copy(seen->text, sizeof(seen->text), decoded.text);
   }
   seen->time = now;
-  int route_device = p->route_valid ? p->device : device;
-  const char *route_path = p->route_valid ? p->path : "";
+  /* Internet reception must never select a previously used RF reply route. */
+  const int compatible_route = p->route_valid && ((p->device == 256) == (device == 256));
+  int route_device = compatible_route ? p->device : device;
+  const char *route_path = compatible_route ? p->path : "";
   if (to_me && strcmp(sender, c->callsign) && decoded.id[0]) {
     copy(p->ack, sizeof(p->ack), decoded.id);
     int throttled = 0;
