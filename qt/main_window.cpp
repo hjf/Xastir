@@ -9,6 +9,7 @@
 #include "packet_monitor.h"
 #include "station_navigator.h"
 #include "station_menu.h"
+#include "station_details.h"
 #include "aprs_decoder.h"
 #include <QTimer>
 
@@ -107,7 +108,8 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
     if (error) *error = QObject::tr("AGWPE interface is no longer available.");
     return false;
   });
-  new MessageUi(this, messages_, clients, options.config.autoReplyText);
+  auto *messageUi = new MessageUi(this, messages_, clients, options.config.autoReplyText);
+  new StationDetails(this, stations_, mapWidget_, navigator, messageUi, options.config.callsign);
 }
 
 bool MainWindow::loadStations(const QString &path, QString *error, bool centerOnStations)

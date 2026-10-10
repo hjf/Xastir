@@ -10,6 +10,8 @@
 #include <QtEndian>
 
 #include <QAction>
+#include <QLabel>
+#include <QDialog>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QBuffer>
@@ -376,6 +378,20 @@ private slots:
     QCOMPARE(station.position.longitude, 2.0);
     QCOMPARE(station.symbolTable, QChar('A'));
     QCOMPARE(station.course.value(), 90.0);
+  }
+
+  void clickStationDetails()
+  {
+    ApplicationOptions options; options.center={0,0}; options.zoom=3;
+    MainWindow window(options); window.show();
+    auto *canvas=window.findChild<MapWidget *>();
+    Station station; station.callsign="DETAIL"; station.position={0,0}; station.comment="Initial report";
+    QVERIFY(window.stationModel()->upsert(station));
+    QTest::mouseClick(canvas,Qt::LeftButton,Qt::NoModifier,QPoint(qRound(canvas->width()/2.0),qRound(canvas->height()/2.0)));
+    auto *dialog=window.findChild<QDialog *>("stationDetails"); QVERIFY(dialog); QVERIFY(dialog->isVisible());
+    auto *text=dialog->findChild<QLabel *>("stationDetailsText"); QVERIFY(text->text().contains("DETAIL")); QVERIFY(text->text().contains("Initial report"));
+    station.comment="Updated report"; QVERIFY(window.stationModel()->upsert(station)); QVERIFY(text->text().contains("Updated report"));
+    window.stationModel()->remove("DETAIL"); QVERIFY(text->text().contains("no longer"));
   }
 
   void stationIconsRenderAndMove()

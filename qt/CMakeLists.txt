@@ -10,6 +10,7 @@ add_library(xastir_qt_ui STATIC
   packet_monitor.cpp packet_monitor.h
   station_navigator.cpp station_navigator.h
   station_menu.cpp station_menu.h
+  station_details.cpp station_details.h
   aprs_symbols.cpp aprs_symbols.h
   station_model.cpp station_model.h
   xastir_config.cpp xastir_config.h

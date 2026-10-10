@@ -345,6 +345,7 @@ void MapWidget::mousePressEvent(QMouseEvent *event)
   if (event->button() == Qt::LeftButton)
   {
     dragging_ = true;
+    dragged_ = false; pressPosition_ = event->position();
     dragPosition_ = event->position();
     setCursor(Qt::ClosedHandCursor);
     setFocus();
@@ -358,7 +359,8 @@ void MapWidget::mouseMoveEvent(QMouseEvent *event)
 {
   if (dragging_)
   {
-    if (event->position() != dragPosition_) emit manuallyPanned();
+    if ((event->position()-pressPosition_).manhattanLength()>4) dragged_=true;
+    if (dragged_) emit manuallyPanned();
     center_ -= event->position() - dragPosition_;
     dragPosition_ = event->position();
     updateView();
@@ -372,6 +374,16 @@ void MapWidget::mouseReleaseEvent(QMouseEvent *event)
 {
   if (event->button() == Qt::LeftButton)
   {
+    if (!dragged_ && stations_) {
+      QString selected; double best=225;
+      for (const auto &station : stations_->stations()) {
+        if (!stationVisible(station.callsign)) continue;
+        const QPointF delta=coordinateToScreen(station.position)-event->position();
+        const double squared=delta.x()*delta.x()+delta.y()*delta.y();
+        if(squared<best) {best=squared; selected=station.callsign;}
+      }
+      if(!selected.isEmpty()) emit stationClicked(selected);
+    }
     dragging_ = false;
     setCursor(Qt::OpenHandCursor);
     event->accept();

@@ -31,6 +31,7 @@ public:
   bool stationVisible(const QString &name) const;
 
 signals:
+  void stationClicked(const QString &name);
   void viewChanged();
   void manuallyPanned();
 
@@ -60,7 +61,8 @@ private:
   int zoom_;
   QTimer tileTimer_;
   bool dragging_ = false;
-  QPointF dragPosition_;
+  QPointF dragPosition_, pressPosition_;
+  bool dragged_ = false;
   int wheelDelta_ = 0;
   QPointer<StationModel> stations_;
   AprsSymbols symbols_;
