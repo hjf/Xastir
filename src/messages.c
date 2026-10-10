@@ -26,6 +26,7 @@
 #endif  // HAVE_CONFIG_H
 
 #include "snprintf.h"
+#include "globals.h"
 
 #include <Xm/XmAll.h>
 #include <X11/Xatom.h>
@@ -649,49 +650,9 @@ void clear_outgoing_messages(void)
 // sending the sequence number in Base-?? format in order to get
 // more range from the 2-character variable.
 //
-int bump_message_counter(char *message_counter)
+int bump_message_counter(char *counter)
 {
-
-  int bump_warning = 0;
-  message_counter[2] = '\0';  // Terminate at 2 chars
-
-  // Increment the least significant digit
-  message_counter[1]++;
-
-  // Span the gaps between the correct ranges
-  if (message_counter[1] == ':')
-  {
-    message_counter[1] = 'A';
-  }
-
-  if (message_counter[1] == '[')
-  {
-    message_counter[1] = 'a';
-  }
-
-  if (message_counter[1] == '{')
-  {
-    message_counter[1] = '0';
-    message_counter[0]++;   // Roll over to next char
-  }
-
-  // Span the gaps between the correct ranges
-  if (message_counter[0] == ':')
-  {
-    message_counter[0] = 'A';
-  }
-
-  if (message_counter[0] == '[')
-  {
-    message_counter[0] = 'a';
-  }
-
-  if (message_counter[0] == '{')
-  {
-    message_counter[0] = '0';
-    bump_warning = 1;
-  }
-  return bump_warning;
+  return xastir_bump_message_counter(counter);
 }
 
 
@@ -705,237 +666,38 @@ int bump_message_counter(char *message_counter)
 // We also stuff the message into the main message queue so that the
 // queued messages will appear in the Send Message box.
 //
+/* Legacy presentation adapter. The shared engine owns queue/timers/history;
+ * the old transport is called here, never from protocol decoding. */
+static XastirMessages *legacy_delivery;
+static int legacy_message_transmit(void *user, const char *info, int device,
+                                   const char *path, char *error, size_t capacity)
+{
+  (void)user; (void)device; (void)error; (void)capacity;
+  char recipient[10] = {0};
+  if (info[0] == ':' && strlen(info) >= 11) {
+    memcpy(recipient, info + 1, 9);
+    remove_trailing_spaces(recipient);
+  }
+  transmit_message_data(recipient, (char *)info, (char *)path);
+  return 1;
+}
+static XastirMessages *legacy_message_engine(void)
+{
+  if (!legacy_delivery) {
+    legacy_delivery = xastir_messages_create(my_callsign);
+    if (legacy_delivery)
+      xastir_messages_set_callbacks(legacy_delivery, NULL, legacy_message_transmit, NULL);
+  }
+  return legacy_delivery;
+}
 void output_message(char *from, char *to, char *message, char *path)
 {
-  int ok,i,j;
-  char message_out[MAX_MESSAGE_OUTPUT_LENGTH+1+5+1]; // +'{' +msg_id +terminator
-  char message_utf8[(MAX_MESSAGE_LENGTH*2)+1];
-  const char *message_bytes;
-  int last_space, message_ptr, space_loc;
-  int wait_on_first_ack;
-  int error;
-  long record;
-
-
-//fprintf(stderr,"output_message:%s\n", message);
-
-  if (message == NULL)
-  {
-    return;
-  }
-
-  if (traffic_utf8_enabled)
-  {
-    latin1_to_utf8(message, message_utf8, sizeof(message_utf8));
-    message_bytes = message_utf8;
-  }
-  else
-  {
-    message_bytes = message;
-  }
-
-  message_ptr=0;
-  last_space=0;
-  ok=0;
-  error=0;
-
-  if (debug_level & 2)
-  {
-    fprintf(stderr,"Output Message from <%s>  to <%s>\n",from,to);
-  }
-
-  // Repeat until we process the entire message.  We'll process it
-  // a chunk at a time, size of chunk to correspond to max APRS
-  // message line length.
-  //
-  while (!error && (message_ptr < (int)strlen(message_bytes)))
-  {
-    ok=0;
-    space_loc=0;
-
-    // Break a long message into smaller chunks that can be
-    // processed into APRS messages.  Break at a space character
-    // if possible.
-    //
-    for (j=0; j<MAX_MESSAGE_OUTPUT_LENGTH; j++)
-    {
-
-      if(message_bytes[j+message_ptr] != '\0')
-      {
-
-        if(message_bytes[j+message_ptr]==' ')
-        {
-          last_space=j+message_ptr+1;
-          space_loc=j;
-        }
-
-        if (j!=MAX_MESSAGE_OUTPUT_LENGTH)
-        {
-          message_out[j]=message_bytes[j+message_ptr];
-          message_out[j+1] = '\0';
-        }
-        else
-        {
-
-          if(space_loc!=0)
-          {
-            message_out[space_loc] = '\0';
-          }
-          else
-          {
-            last_space=j+message_ptr;
-          }
-        }
-      }
-      else
-      {
-        j=MAX_MESSAGE_OUTPUT_LENGTH+1;
-        last_space=strlen(message_bytes)+1;
-      }
-    }
-
-//fprintf(stderr,"message_out: %s\n", message_out);
-
-    if (debug_level & 2)
-    {
-      fprintf(stderr,"MESSAGE <%s> %d %d\n",message_out,message_ptr,last_space);
-    }
-
-    if (j >= MAX_MESSAGE_OUTPUT_LENGTH)
-    {
-      message_ptr = MAX_MESSAGE_OUTPUT_LENGTH;
-    }
-    else
-    {
-      message_ptr=last_space;
-    }
-
-    /* check for others in the queue */
-    wait_on_first_ack=0;
-    for (i=0; i<MAX_OUTGOING_MESSAGES; i++)
-    {
-      if (message_pool[i].active == MESSAGE_ACTIVE
-          && strcmp(to, message_pool[i].to_call_sign) == 0
-          && strcmp(from, "***") != 0)
-      {
-        wait_on_first_ack=1;
-        i=MAX_OUTGOING_MESSAGES+1;  // Done with loop
-      }
-    }
-
-    for (i=0; i<MAX_OUTGOING_MESSAGES && !ok ; i++)
-    {
-      /* Check for clear position*/
-      if (message_pool[i].active==MESSAGE_CLEAR)
-      {
-        /* found a spot */
-        ok=1;
-
-        // Increment the message sequence ID variable
-        if (bump_message_counter(message_counter))
-        {
-          fprintf(stderr, "!WARNING!: Wrap around Message Counter");
-        }
-
-
-// Note that Xastir's messaging can lock up if we do a rollover and
-// have unacked messages on each side of the rollover.  This is due
-// to the logic in db.c that looks for the lowest numbered unacked
-// message.  We get stuck on both sides of the fence at once.  To
-// avoid this condition we could reduce the compare number (8100) to
-// a smaller value, and only roll over when there are no unacked
-// messages?  Another way to do it would be to write a "0" to the
-// config file if we're more than 1000 when we quit Xastir?  That
-// would probably be easier.  It's still possible to get to 8100
-// messages during one runtime though.  Unlikely, but possible.
-
-        message_pool[i].active = MESSAGE_ACTIVE;
-        message_pool[i].wait_on_first_ack = wait_on_first_ack;
-        xastir_snprintf(message_pool[i].to_call_sign,
-                        sizeof(message_pool[i].to_call_sign),
-                        "%s",
-                        to);
-        xastir_snprintf(message_pool[i].from_call_sign,
-                        sizeof(message_pool[i].from_call_sign),
-                        "%s",
-                        from);
-        memcpy(message_pool[i].message_line, message_out, sizeof(message_pool[i].message_line));
-        // Terminate line
-        message_pool[i].message_line[sizeof(message_pool[i].message_line)-1] = '\0';
-
-        if (path != NULL)
-          xastir_snprintf(message_pool[i].path,
-                          sizeof(message_pool[i].path),
-                          "%s",
-                          path);
-        else
-        {
-          message_pool[i].path[0] = '\0';
-        }
-
-//                // We compute the base-90 sequence number here
-//                // This allows it to range from "!!" to "zz"
-//                xastir_snprintf(message_pool[i].seq,
-//                    sizeof(message_pool[i].seq),
-//                    "%c%c",
-//                    (char)(((message_counter / 90) % 90) + 33),
-//                    (char)((message_counter % 90) + 33));
-
-        xastir_snprintf(message_pool[i].seq,
-                        sizeof(message_pool[i].seq),
-                        "%c%c",
-                        message_counter[0],
-                        message_counter[1]);
-
-        message_pool[i].active_time=0;
-        message_pool[i].next_time = (time_t)7L;
-
-        if (strcmp(from,"***")!= 0)
-        {
-          message_pool[i].tries = 0;
-        }
-        else
-        {
-          message_pool[i].tries = MAX_TRIES-1;
-        }
-
-        // Cause the message to get added to the main
-        // message queue as well, with the proper sequence
-        // number, so queued messages will appear in the
-        // Send Message box as unacked messages.
-        //
-
-// We must get rid of the lock we already have for a moment, as
-// update_messages(), which is called by msg_data_add(), also snags
-// this lock.
-        end_critical_section(&send_message_dialog_lock, "db.c:update_messages" );
-
-        (void)msg_data_add(to,
-                           from,
-                           message_out,
-                           message_pool[i].seq,
-                           MESSAGE_MESSAGE,
-                           'L',    // From the Local system
-                           &record);
-        /*
-                        fprintf(stderr,"msg_data_add %s %s %s %s\n",
-                            to,
-                            from,
-                            message_out,
-                            message_pool[i].seq);
-        */
-
-// Regain the lock we had before
-        begin_critical_section(&send_message_dialog_lock, "db.c:update_messages" );
-
-      }
-    }
-    if(!ok)
-    {
-      fprintf(stderr,"Output message queue is full!\n");
-      error=1;
-    }
-  }
+  (void)from;
+  XastirMessages *engine = legacy_message_engine();
+  char error[256];
+  if (engine && message)
+    xastir_messages_send(engine, to, message, group_active(to), 0,
+                         path ? path : "", (int64_t)sec_now() * 1000, error, sizeof(error));
 }
 
 
@@ -1312,212 +1074,10 @@ void check_delayed_transmit_queue(int curr_sec)
 
 
 
-void check_and_transmit_messages(time_t time)
+void check_and_transmit_messages(time_t now)
 {
-  int i;
-  char temp[200];
-  char to_call[40];
-
-
-  // Skip this function if we did it during this second already.
-  if (last_check_and_transmit == time)
-  {
-    return;
-  }
-  last_check_and_transmit = time;
-
-  for (i=0; i<MAX_OUTGOING_MESSAGES; i++)
-  {
-    if (message_pool[i].active==MESSAGE_ACTIVE)
-    {
-      if (message_pool[i].wait_on_first_ack!=1)   // Tx only if 0
-      {
-        if (message_pool[i].active_time < time)
-        {
-          char *last_ack_ptr;
-          char last_ack[5+1];
-
-
-          if (message_pool[i].tries < MAX_TRIES)
-          {
-            char new_path[MAX_LINE_SIZE+1];
-
-
-            /* sending message let the tnc and net transmits check to see if we should */
-            if (debug_level & 2)
-              fprintf(stderr,
-                      "Time %ld Active time %ld next time %ld\n",
-                      (long)time,
-                      (long)message_pool[i].active_time,
-                      (long)message_pool[i].next_time);
-
-            if (debug_level & 2)
-              fprintf(stderr,"Send message#%d to <%s> from <%s>:%s-%s\n",
-                      message_pool[i].tries,
-                      message_pool[i].to_call_sign,
-                      message_pool[i].from_call_sign,
-                      message_pool[i].message_line,
-                      message_pool[i].seq);
-
-            pad_callsign(to_call,message_pool[i].to_call_sign);
-
-            // Add Leading ":" as per APRS Spec.
-            // Add trailing '}' to signify that we're
-            // Reply/Ack protocol capable.
-            last_ack_ptr = get_most_recent_ack(to_call);
-            if (last_ack_ptr != NULL)
-              xastir_snprintf(last_ack,
-                              sizeof(last_ack),
-                              "%s",
-                              last_ack_ptr);
-            else
-            {
-              last_ack[0] = '\0';
-            }
-
-            xastir_snprintf(temp, sizeof(temp), ":%s:%s{%s}%s",
-                            to_call,
-                            message_pool[i].message_line,
-                            message_pool[i].seq,
-                            last_ack);
-
-            if (debug_level & 2)
-            {
-              fprintf(stderr,"MESSAGE OUT>%s<\n",temp);
-            }
-
-
-            // Check for a custom path having been set
-            // in the Send Message dialog.  If so, use
-            // this for our outgoing path instead and
-            // reset all of the queued message paths to
-            // this station to this new path.
-            //
-            get_send_message_path(to_call,
-                                  new_path,
-                                  sizeof(new_path));
-
-//fprintf(stderr,"get_send_message_path(%s) returned: %s\n",to_call,new_path);
-
-            if (new_path[0] != '\0'
-                && strcmp(new_path,message_pool[i].path) != 0)
-            {
-
-              // We have a custom path set which is
-              // different than the path saved with
-              // the outgoing message.
-              //
-              // Change all messages to that callsign
-              // to match the new path.
-              //
-              change_path_outgoing_messages_to(to_call,new_path);
-            }
-
-
-            // Transmit the message
-            transmit_message_data(message_pool[i].to_call_sign,
-                                  temp,
-                                  message_pool[i].path);
-
-
-            message_pool[i].active_time = time + message_pool[i].next_time;
-
-            //fprintf(stderr,"%d\n",(int)message_pool[i].next_time);
-          }
-
-          /*
-          fprintf(stderr,
-              "Msg Interval = %3ld seconds or %4.1f minutes\n",
-              message_pool[i].next_time,
-              message_pool[i].next_time / 60.0);
-          */
-
-          // Record the interval we're using.  Put it with
-          // the message in the general message pool, so
-          // that the Send Message dialog can display it.
-          // It will only display it if the message is
-          // actively being transmitted.  If it has been
-          // cancelled, timed out, or hasn't made it to
-          // the transmit position yet, it won't be shown.
-          //
-          msg_record_interval_tries(message_pool[i].to_call_sign,
-                                    message_pool[i].from_call_sign,
-                                    message_pool[i].seq,
-                                    message_pool[i].next_time,  // Interval
-                                    message_pool[i].tries);     // Tries
-
-          // Start at 7 seconds for the interval.  We set
-          // it to 7 seconds in output_message() above.
-          // Double the interval each retry until we hit
-          // 10 minutes.  Keep transmitting at 10 minute
-          // intervals until we hit MAX_TRIES.
-
-          // Double the interval between messages
-          message_pool[i].next_time = message_pool[i].next_time * 2;
-
-          // Limit the max interval to 10 minutes
-          if (message_pool[i].next_time > (time_t)600L)
-          {
-            message_pool[i].next_time = (time_t)600L;
-          }
-
-          message_pool[i].tries++;
-
-          // Expire it if we hit the limit
-          if (message_pool[i].tries > MAX_TRIES)
-          {
-            char temp[150];
-            char temp_to[20];
-
-            xastir_snprintf(temp,sizeof(temp),"To: %s, Msg: %s",
-                            message_pool[i].to_call_sign,
-                            message_pool[i].message_line);
-            //popup_message(langcode("POPEM00004"),langcode("POPEM00017"));
-            popup_message( "Retries Exceeded!", temp );
-
-            // Fake the system out: We're pretending
-            // that we got an ACK back from it so that
-            // we can either release the next message to
-            // go out, or at least make the send button
-            // sensitive again.
-            // We need to copy the to_call_sign into
-            // another variable because the
-            // clear_acked_message() function clears out
-            // the message then needs this parameter to
-            // do another compare (to enable the Send Msg
-            // button again).
-            xastir_snprintf(temp_to,
-                            sizeof(temp_to),
-                            "%s",
-                            message_pool[i].to_call_sign);
-
-            // Record a fake ack and add "*TIMEOUT*" to
-            // the message.  This will be displayed in
-            // the Send Message dialog.
-            msg_record_ack(temp_to,
-                           message_pool[i].from_call_sign,
-                           message_pool[i].seq,
-                           1,  // "1" specifies a timeout
-                           0); // Not a cancel
-
-            clear_acked_message(temp_to,
-                                message_pool[i].from_call_sign,
-                                message_pool[i].seq);
-
-//                        if (mw[i].send_message_dialog!=NULL) /* clear submit */
-//                            XtSetSensitive(mw[i].button_ok,TRUE);
-          }
-        }
-      }
-      else
-      {
-        if (debug_level & 2)
-        {
-          fprintf(stderr,"Message #%s is waiting to have a previous one cleared\n",message_pool[i].seq);
-        }
-      }
-    }
-  }
+  XastirMessages *engine = legacy_message_engine();
+  if (engine) xastir_messages_process(engine, (int64_t)now * 1000);
 }
 
 
@@ -1530,140 +1090,8 @@ void check_and_transmit_messages(time_t time)
 //
 void clear_acked_message(char *from, char *to, char *seq)
 {
-  int i,ii;
-  int found;
-  char lowest[3];
-  char temp1[MAX_CALLSIGN+1];
-  char *temp_ptr;
-  char msg_id[5+1];
-
-
-  // Copy seq into local variable
-  xastir_snprintf(msg_id,
-                  sizeof(msg_id),
-                  "%s",
-                  seq);
-
-  // Check for REPLY-ACK protocol.  If found, terminate at the end
-  // of the first ack.
-  temp_ptr = strchr(msg_id, '}');
-  if (temp_ptr)
-  {
-    *temp_ptr = '\0';
-  }
-
-  (void)remove_trailing_spaces(msg_id);  // This is IMPORTANT here!!!
-
-  //lowest=100000;
-  // Highest Base-90 2-char string
-  xastir_snprintf(lowest,sizeof(lowest),"zz");
-  found= -1;
-  for (i=0; i<MAX_OUTGOING_MESSAGES; i++)
-  {
-    if (message_pool[i].active==MESSAGE_ACTIVE)
-    {
-
-      if (debug_level & 1)
-        fprintf(stderr,
-                "TO <%s> <%s> from <%s> <%s> seq <%s> <%s>\n",
-                to,
-                message_pool[i].to_call_sign,
-                from,
-                message_pool[i].from_call_sign,
-                msg_id,
-                message_pool[i].seq);
-
-      if (strcmp(message_pool[i].to_call_sign,from)==0)
-      {
-        if (debug_level & 1)
-        {
-          fprintf(stderr,"Matched message to_call_sign\n");
-        }
-        if (strcmp(message_pool[i].from_call_sign,to)==0)
-        {
-          if (debug_level & 1)
-          {
-            fprintf(stderr,"Matched message from_call_sign\n");
-          }
-          if (strcmp(message_pool[i].seq,msg_id)==0)
-          {
-            if (debug_level & 2)
-            {
-              fprintf(stderr,"Found and cleared\n");
-            }
-
-            clear_outgoing_message(i);
-            // now find and release next message, look for the lowest sequence?
-// What about when the sequence rolls over?
-            for (i=0; i<MAX_OUTGOING_MESSAGES; i++)
-            {
-              if (message_pool[i].active==MESSAGE_ACTIVE)
-              {
-                if (strcmp(message_pool[i].to_call_sign,from)==0)
-                {
-// Need to change this to a string compare instead of an integer
-// compare.  We are using base-90 encoding now.
-                  //if (atoi(message_pool[i].seq)<lowest) {
-                  if (strncmp(message_pool[i].seq,lowest,2) < 0)
-                  {
-                    //lowest=atoi(message_pool[i].seq);
-                    xastir_snprintf(lowest,
-                                    sizeof(lowest),
-                                    "%s",
-                                    message_pool[i].seq);
-                    found=i;
-                  }
-                }
-              }
-            }
-            // Release the next message in the queue for transmission
-            if (found!= -1)
-            {
-              message_pool[found].wait_on_first_ack=0;
-            }
-            else
-            {
-              /* if no more clear the send button */
-
-              begin_critical_section(&send_message_dialog_lock, "messages.c:clear_acked_message" );
-
-              for (ii=0; ii<MAX_MESSAGE_WINDOWS; ii++)
-              {
-                /* find station  */
-                if (mw[ii].send_message_dialog!=NULL)
-                {
-
-                  temp_ptr = XmTextFieldGetString(mw[ii].send_message_call_data);
-                  xastir_snprintf(temp1,
-                                  sizeof(temp1),
-                                  "%s",
-                                  temp_ptr);
-                  XtFree(temp_ptr);
-
-                  (void)to_upper(temp1);
-                  //fprintf(stderr,"%s\t%s\n",temp1,from);
-//                                    if (strcmp(temp1,from)==0) {
-                  /*clear submit*/
-//                                        XtSetSensitive(mw[ii].button_ok,TRUE);
-//                                    }
-                }
-              }
-
-              end_critical_section(&send_message_dialog_lock, "messages.c:clear_acked_message" );
-
-            }
-          }
-          else
-          {
-            if (debug_level & 1)
-            {
-              fprintf(stderr,"Sequences didn't match: %s %s\n",message_pool[i].seq,msg_id);
-            }
-          }
-        }
-      }
-    }
-  }
+  XastirMessages *engine = legacy_message_engine();
+  if (engine) xastir_messages_acknowledge(engine, from, to, seq, 0);
 }
 
 

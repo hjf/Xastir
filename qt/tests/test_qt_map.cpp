@@ -5,6 +5,7 @@
 #include "tile_source.h"
 #include "aprs_symbols.h"
 #include "station_model.h"
+#include "station_db.h"
 #include "agwpe_client.h"
 #include <QtEndian>
 
@@ -314,6 +315,7 @@ private slots:
     QString error;
     QVERIFY2(model.loadFile(QStringLiteral(STATION_EXAMPLE_FILE), &error), qPrintable(error));
     QCOMPARE(model.stations().size(), 8);
+    QCOMPARE(model.database()->count, 8);
     QCOMPARE(changes.size(), 1);
     Station station = model.stations().value(QStringLiteral("DEMO-HOME"));
     station.callsign = " demo-home ";
@@ -337,6 +339,7 @@ private slots:
     QCOMPARE(model.stations().size(), 7);
     model.clear();
     QCOMPARE(model.stations().size(), 0);
+    QCOMPARE(model.database()->count, 0);
     QCOMPARE(changes.size(), 4);
     model.clear();
     QCOMPARE(changes.size(), 4);

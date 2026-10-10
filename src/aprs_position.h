@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #ifndef XASTIR_APRS_POSITION_H
 #define XASTIR_APRS_POSITION_H
+#include <stddef.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -14,10 +15,14 @@ typedef struct {
   struct { char aprs_type, aprs_symbol, special_overlay; } aprs_symbol;
   char altitude[32], speed[32], course[32], power_gain[32];
 } XastirPosition;
+/* info starts after the Mic-E data type byte. Returns 1 on success. */
+int xastir_expand_mice(const char *destination, const char *info, char *expanded, size_t capacity, int *emergency);
 void xastir_overlay_symbol(char symbol, char table, XastirPosition *position);
 int xastir_decode_dao(int *lat, int *lon, char *datum, char *comment);
 int xastir_extract_position(XastirPosition *position, char **info, int grid);
 int xastir_extract_comp_position(XastirPosition *position, char **info);
+int xastir_extract_speed_course(char *info, char *speed, char *course);
+int xastir_extract_altitude(char *info, char *altitude);
 long xastir_convert_lat_s2l(char *lat);
 long xastir_convert_lon_s2l(char *lon);
 #ifdef __cplusplus

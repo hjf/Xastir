@@ -7,6 +7,8 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <cmath>
+#include <QDateTime>
+#include "station_db.h"
 
 namespace
 {
@@ -43,33 +45,76 @@ bool StationModel::validate(Station &station, QString *error)
   return true;
 }
 
+namespace {
+bool store(XastirStationDb *database, const Station &station)
+{
+  const auto name = station.callsign.toUtf8(), source = station.sourceStation.toUtf8();
+  const auto speed = station.speed.toLatin1(), altitude = station.altitude.toLatin1(), comment = station.comment.toLatin1();
+  const XastirStationReport report{name.constData(), source.constData(),
+    station.position.latitude, station.position.longitude, station.course.value_or(0),
+    int(station.kind), bool(station.course), station.emergency,
+    station.symbolTable.toLatin1(), station.symbolCode.toLatin1(),
+    speed.constData(), altitude.constData(), comment.constData(), station.ambiguity, station.local};
+  return xastir_station_update(database, &report, QDateTime::currentSecsSinceEpoch());
+}
+}
+StationModel::StationModel(QObject *parent) : QObject(parent), database_(std::make_unique<XastirStationDb>())
+{
+  xastir_station_db_init(database_.get(), QDateTime::currentSecsSinceEpoch());
+}
+StationModel::~StationModel() { xastir_delete_all_stations(database_.get()); }
+void StationModel::refreshProjection()
+{
+  stations_.clear();
+  for (const DataRow *row = database_->first; row; row = row->n_next) {
+    if (!(row->flag & ST_ACTIVE) || !row->position_valid) continue;
+    Station station;
+    station.callsign = QString::fromUtf8(row->call_sign);
+    station.position = {row->latitude, row->longitude};
+    station.symbolCode = QChar(row->aprs_symbol.aprs_symbol);
+    station.symbolTable = QChar(row->aprs_symbol.special_overlay
+        ? row->aprs_symbol.special_overlay : row->aprs_symbol.aprs_type);
+    if (row->heading_valid) station.course = row->heading;
+    station.kind = row->flag & ST_OBJECT ? StationKind::Object : row->flag & ST_ITEM ? StationKind::Item : StationKind::Station;
+    station.sourceStation = QString::fromUtf8(row->origin);
+    station.local = row->flag & ST_MYSTATION;
+    station.emergency = row->emergency;
+    station.speed = QString::fromLatin1(row->speed);
+    station.altitude = QString::fromLatin1(row->altitude);
+    station.ambiguity = row->pos_amb;
+    if (row->comment_data) station.comment = QString::fromLatin1(row->comment_data->text_ptr);
+    stations_.insert(station.callsign, station);
+  }
+}
 bool StationModel::upsert(Station station, QString *error)
 {
-  if (!validate(station, error))
-    return false;
+  if (!validate(station, error)) return false;
+  if (!store(database_.get(), station)) return fail(error, tr("Cannot store station in the APRS database."));
+  // A configured local position has priority over an RF echo of that callsign.
+  const auto name = station.callsign.toUtf8(); DataRow *row = nullptr;
+  xastir_search_station_name(database_.get(), &row, const_cast<char *>(name.constData()), 1);
+  if (row && (row->flag & ST_MYSTATION) && !station.local) return true;
   stations_.insert(station.callsign, station);
   emit stationsChanged();
   return true;
 }
-
 bool StationModel::remove(const QString &name, StationKind kind)
 {
-  const QString key = kind == StationKind::Station ? name.trimmed().toUpper() : name.trimmed();
-  if (!stations_.remove(key))
-    return false;
+  const auto key = (kind == StationKind::Station ? name.trimmed().toUpper() : name.trimmed()).toUtf8();
+  DataRow *row = nullptr;
+  if (!xastir_search_station_name(database_.get(), &row, const_cast<char *>(key.constData()), 1)) return false;
+  xastir_station_del_ptr(database_.get(), row);
+  stations_.remove(QString::fromUtf8(key));
   emit stationsChanged();
   return true;
 }
-
 void StationModel::clear()
 {
-  if (!stations_.isEmpty())
-  {
-    stations_.clear();
-    emit stationsChanged();
-  }
+  if (!database_->count) return;
+  xastir_delete_all_stations(database_.get());
+  refreshProjection();
+  emit stationsChanged();
 }
-
 bool StationModel::loadFile(const QString &path, QString *error)
 {
   QFile file(path);
@@ -113,7 +158,17 @@ bool StationModel::loadFile(const QString &path, QString *error)
       return fail(error, tr("Station %1: %2").arg(index + 1).arg(reason));
     next.insert(station.callsign, station);
   }
-  stations_ = std::move(next);
+  auto replacement = std::make_unique<XastirStationDb>();
+  xastir_station_db_init(replacement.get(), QDateTime::currentSecsSinceEpoch());
+  for (const auto &station : next) {
+    if (!store(replacement.get(), station)) {
+      xastir_delete_all_stations(replacement.get());
+      return fail(error, tr("Cannot store station snapshot in the APRS database."));
+    }
+  }
+  xastir_delete_all_stations(database_.get());
+  database_ = std::move(replacement);
+  refreshProjection();
   emit stationsChanged();
   return true;
 }

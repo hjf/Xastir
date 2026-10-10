@@ -29,7 +29,7 @@
 #include <string.h>
 #include <math.h>
 
-static void substr(char *out, const char *in, size_t count)
+static void position_substr(char *out, const char *in, size_t count)
 {
   size_t length = strlen(in);
   if (length > count) length = count;
@@ -103,13 +103,13 @@ long xastir_convert_lat_s2l(char *lat)        /* N=0°=°, Ctr=90°, S=180° */
              || (char)toupper((int)copy[11])=='S'))
   {
 
-    substr(n, copy, 2);       // degrees
+    position_substr(n, copy, 2);       // degrees
     centi_sec=atoi(n)*60*60*100;
 
-    substr(n, copy+2, 2);     // minutes
+    position_substr(n, copy+2, 2);     // minutes
     centi_sec += atoi(n)*60*100;
 
-    substr(n, copy+5, 4);     // fractional minutes
+    position_substr(n, copy+5, 4);     // fractional minutes
     // Keep the fourth digit if present, as it resolves to 0.6
     // of a 1/100 sec resolution.  Two counts make one count in
     // the Xastir coordinate system.
@@ -222,14 +222,14 @@ long xastir_convert_lon_s2l(char *lon)       /* W=0°, Ctr=180°, E=360° */
              || (char)toupper((int)copy[12])=='E'))
   {
 
-    substr(n,copy,3);    // degrees 013
+    position_substr(n,copy,3);    // degrees 013
     centi_sec=atoi(n)*60*60*100;
 
-    substr(n,copy+3,2);  // minutes 26
+    position_substr(n,copy+3,2);  // minutes 26
     centi_sec += atoi(n)*60*100;
     // 01326.66E  01326.660E
 
-    substr(n,copy+6,4);  // fractional minutes 66E 660E or 6601
+    position_substr(n,copy+6,4);  // fractional minutes 66E 660E or 6601
     // Keep the fourth digit if present, as it resolves to 0.6
     // of a 1/100 sec resolution.  Two counts make one count in
     // the Xastir coordinate system.
@@ -405,6 +405,27 @@ int xastir_decode_dao (int *lat, int *lon, char *datumch, char *daocomment)
   return 0;
 }
 
+/* Validate ambiguous coordinate fields before the legacy midpoint conversion.
+ * Ambiguity must occupy trailing minute digits, and minutes cannot reach 60. */
+static int valid_coordinate(const char *value, int degrees, int limit)
+{
+  const int positions[4] = {degrees, degrees+1, degrees+3, degrees+4};
+  int d = 0, digits[4], blank = -1;
+  for (int i = 0; i < degrees; ++i) {
+    if (!is_num_chr(value[i])) return 0;
+    d = d*10 + value[i]-'0';
+  }
+  if (value[degrees+2] != '.') return 0;
+  for (int i = 0; i < 4; ++i) {
+    char c = value[positions[i]];
+    if (c == ' ') { if (blank < 0) blank = i; digits[i] = 0; }
+    else { if (blank >= 0 || !is_num_chr(c)) return 0; digits[i] = c-'0'; }
+  }
+  if (blank == 0) digits[0] = 3;
+  else if (blank > 0) digits[blank] = 5;
+  int minutes = digits[0]*1000 + digits[1]*100 + digits[2]*10 + digits[3];
+  return d <= limit && minutes < 6000 && (d < limit || minutes == 0);
+}
 int xastir_extract_position(XastirPosition *p_station, char **info, int grid)
 {
   int ok, dao_lat, dao_lon, dao_rval;
@@ -415,7 +436,10 @@ int xastir_extract_position(XastirPosition *p_station, char **info, int grid)
   char dao_datumch;
   float gridlat;
   float gridlon;
+  if (!p_station || !info || !*info) return 0;
   my_data = (*info);
+  if (!grid && (strlen(my_data) < 19 || !valid_coordinate(my_data, 2, 90)
+      || !valid_coordinate(my_data+9, 3, 180))) return 0;
 
   if (!grid)  // Not a grid
   {
@@ -817,4 +841,104 @@ int xastir_extract_comp_position(XastirPosition *p_station, char **info)
   //fprintf(stderr,"  xastir_extract_comp_position end: %s\n",*info);
 
   return(ok);
+}
+
+int xastir_extract_speed_course(char *info, char *speed, char *course)
+{
+  int i,found,len;
+
+  len = (int)strlen(info);
+  found = 0;
+  speed[0] = course[0] = '\0';
+  if (len >= 7)
+  {
+    found = 1;
+    for(i=0; found && i<7; i++)             // check data format
+    {
+      if (i==3)                           // check separator
+      {
+        if (info[i]!='/')
+        {
+          found = 0;
+        }
+      }
+      else
+      {
+        if( !( isdigit((unsigned char)info[i])
+               || (info[i] == ' ')     // Spaces and periods are allowed.  Need these
+               || (info[i] == '.') ) ) // here so that we can get the field deleted
+        {
+          found = 0;
+        }
+      }
+    }
+  }
+  if (found)
+  {
+    position_substr(course,info,3);
+    position_substr(speed,info+4,3);
+    for (i=0; i<=len-7; i++)      // delete speed/course from info field
+    {
+      info[i] = info[i+7];
+    }
+  }
+  if (!found || atoi(course) < 1)     // course 0 means undefined
+  {
+    //        speed[0] ='\0';   // Don't do this!  We can have a valid
+    //        speed without a valid course.
+    course[0]='\0';
+  }
+  else    // recheck data format looking for undefined fields
+  {
+    for(i=0; i<2; i++)
+    {
+      if( !(isdigit((unsigned char)speed[i]) ) )
+      {
+        speed[0] = '\0';
+      }
+      if( !(isdigit((unsigned char)course[i]) ) )
+      {
+        course[0] = '\0';
+      }
+    }
+  }
+
+  return(found);
+}
+
+int xastir_extract_altitude(char *info, char *altitude)
+{
+  int i,ofs,found,len;
+
+  found=0;
+  len = (int)strlen(info);
+  for(ofs=0; !found && ofs<len-8; ofs++)      // search for start sequence
+    if (strncmp(info+ofs,"/A=",3)==0)
+    {
+      found=1;
+      // Are negative altitudes even defined?  Yes!  In Mic-E spec to -10,000 meters
+      if(!isdigit((unsigned char)info[ofs+3]) && info[ofs+3]!='-')  // First char must be digit or '-'
+      {
+        found=0;
+      }
+      for(i=4; found && i<9; i++)         // check data format for next 5 chars
+        if(!isdigit((unsigned char)info[ofs+i]))
+        {
+          found=0;
+        }
+    }
+  if (found)
+  {
+    ofs--;  // was one too much on exit from for loop
+    position_substr(altitude,info+ofs+3,6);
+    for (i=ofs; i<=len-9; i++)      // delete altitude from info field
+    {
+      info[i] = info[i+9];
+    }
+  }
+  else
+  {
+    altitude[0] = '\0';
+  }
+  return(found);
 }

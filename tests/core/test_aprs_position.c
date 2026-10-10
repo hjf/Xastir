@@ -41,5 +41,11 @@ int main(void)
   CHECK(result.aprs_symbol.aprs_type == '\\' && result.aprs_symbol.special_overlay == '2');
   strcpy(text, "F"); comment = text;
   CHECK(!xastir_extract_position(&result, &comment, 1));
+  strcpy(text, "4960.00N/07201.75W>"); comment = text;
+  CHECK(!xastir_extract_position(&result, &comment, 0));
+  strcpy(text, "4903. 0N/07201.  W>"); comment = text;
+  CHECK(!xastir_extract_position(&result, &comment, 0));
+  strcpy(text, "9000.01N/07201.75W>"); comment = text;
+  CHECK(!xastir_extract_position(&result, &comment, 0));
   return 0;
 }

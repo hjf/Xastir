@@ -32,7 +32,8 @@
 #ifndef XASTIR_DATABASE_H
 #define XASTIR_DATABASE_H
 #include <time.h>
-#include "globals.h"
+#include <stdint.h>
+#include "core_types.h"
 
 
 #define MSG_INCREMENT 200
@@ -165,6 +166,11 @@ typedef struct
   char position_known;
   time_t interval;
   int tries;
+  /* Frontend-independent delivery state alongside the legacy history record. */
+  uint64_t key;
+  int outgoing, group, pending, retryable, device, status;
+  int64_t timestamp_ms, next_retry_ms;
+  char path[200], error[256];
 } Message;
 
 
@@ -363,7 +369,7 @@ typedef struct _DataRow
   struct _DataRow *t_older;   // pointer to previous element in time ordered
   // list (older)
 
-  char call_sign[MAX_CALLSIGN+1]; // call sign or name index or object/item
+  char call_sign[XASTIR_STATION_NAME_SIZE]; // call sign or name index or object/item
   // name
   char *tactical_call_sign;   // Tactical callsign.  NULL if not assigned
   APRS_Symbol aprs_symbol;
@@ -450,7 +456,7 @@ typedef struct _DataRow
 // only a NULL pointer here if not an object/item.
 ///////////////////////////////////////////////////////////////////////
 
-  char origin[MAX_CALLSIGN+1]; // call sign originating an object
+  char origin[XASTIR_STATION_NAME_SIZE]; // call sign originating an object
   short object_retransmit;     // Number of times to retransmit object.
   // -1 = forever
   // Used currently to stop sending killed
@@ -470,6 +476,11 @@ typedef struct _DataRow
   char sats_visible[MAX_SAT];
   char probability_min[10+1];  // Holds prob_min (miles)
   char probability_max[10+1];  // Holds prob_max (miles)
+  unsigned char emergency;
+  unsigned char position_valid;
+  double latitude, longitude; /* Exact geographic projection for frontend imports. */
+  double heading;
+  unsigned char heading_valid;
 
 } DataRow;
 
@@ -534,7 +545,7 @@ typedef struct _CADRow
 typedef struct
 {
   double distance;
-  char call_sign[MAX_CALLSIGN+1]; // call sign or name index or object/item
+  char call_sign[XASTIR_STATION_NAME_SIZE]; // call sign or name index or object/item
   // name
   char is_mobile;
   char is_other_mobile;

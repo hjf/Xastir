@@ -30,6 +30,7 @@
 #include <stdio.h>
 
 #include "database.h"
+#include "station_db.h"
 
 // These don't seem to be used
 // extern void clean_data_file(void);
@@ -126,15 +127,14 @@ extern aloha_stats the_aloha_stats;
 
 // stations
 extern int st_direct_timeout;   // Interval that ST_DIRECT flag stays set
-extern int station_count;       // Count of stations in the database
-extern int station_count_save;  // Old copy of the above
-extern DataRow *n_first;  // pointer to first element in name ordered station
-// list
-extern DataRow *n_last;   // pointer to last element in name ordered station
-// list
-extern DataRow *t_oldest; // pointer to first element in time ordered station
-// list
-extern DataRow *t_newest; // pointer to last element in time ordered station 
+extern XastirStationDb xastir_legacy_stations;
+extern int station_count_save;
+#define station_count (xastir_legacy_stations.count)
+#define n_first (xastir_legacy_stations.first)
+#define n_last (xastir_legacy_stations.last)
+#define t_oldest (xastir_legacy_stations.oldest)
+#define t_newest (xastir_legacy_stations.newest)
+#define station_shortcuts (xastir_legacy_stations.shortcuts)
 // objects/items
 extern time_t last_object_check;
 

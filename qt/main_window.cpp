@@ -23,6 +23,7 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   stations_ = new StationModel(mapWidget);
   mapWidget->setStationModel(stations_);
   localStation_ = options.config.localStation;
+  if (localStation_) localStation_->local = true;
   if (localStation_) stations_->upsert(*localStation_);
   tiles->setParent(mapWidget);
   setCentralWidget(mapWidget);

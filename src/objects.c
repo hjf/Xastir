@@ -40,6 +40,7 @@
 #include "xastir.h"
 #include "main.h"
 #include "db_funcs.h"
+#include "globals.h"
 #include "xa_config.h"
 #include "interface.h"
 #include "objects.h"
@@ -1102,20 +1103,11 @@ DataRow *construct_object_item_data_row(char *name,
     // Generic data for all object types
     //
 
-    // Truncate name if necessary
-    if (strlen(name) > sizeof(theDataRow->call_sign)-1)
-    {
-      char *copy_name;
-      copy_name=(char *)malloc(strlen(name)+1);
-      strncpy(copy_name,name,strlen(name));
-      copy_name[sizeof(theDataRow->call_sign)-1] = '\0';
-      strncpy(theDataRow->call_sign,copy_name,sizeof(theDataRow->call_sign)-1);
-      free(copy_name);
-    }
-    else
-    {
-      strncpy(theDataRow->call_sign,name,sizeof(theDataRow->call_sign)-1);
-    }
+    // On-air object/item names remain limited to nine characters even though
+    // the database can retain longer labels imported by the Qt frontend.
+    xastir_snprintf(theDataRow->call_sign, sizeof(theDataRow->call_sign),
+                    "%.*s", MAX_CALLSIGN, name);
+
 
     theDataRow->coord_lat = convert_lat_s2l(lat_str);
     theDataRow->coord_lon = convert_lon_s2l(lon_str);

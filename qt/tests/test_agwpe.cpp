@@ -65,6 +65,9 @@ void TestAgwpe::positions() {
   QVERIFY(std::abs(update->station.position.latitude - (49 + 3.5 / 60)) < 1e-8);
   update = decodeAprs("TEST>490SUP:`(_fn\"Oj/"); QVERIFY(update);
   QVERIFY(std::abs(update->station.position.longitude + 112.129) < 1e-8);
+  QVERIFY(update->station.emergency);
+  QCOMPARE(update->station.speed, QString("020"));
+  QVERIFY(update->station.comment.contains("Mic-E Emergency"));
   QCOMPARE(*update->station.course, 251.0); QCOMPARE(update->station.symbolCode, QChar('j'));
   auto encode = [](int number) { QByteArray result(4, '!'); for (int i = 3; i >= 0; --i) { result[i] = char(33 + number % 91); number /= 91; } return result; };
   const QByteArray compressed = '/' + encode(int((90 - 49.0) * 380926))

@@ -43,6 +43,8 @@
 
 #include "snprintf.h"
 #include "aprs_position.h"
+#include "message_store.h"
+#include "message_core.h"
 
 #include <stdio.h>
 #include <fcntl.h>
@@ -143,12 +145,8 @@ int nlinesadd=0;
 char GUARD_BAND_ONE[GUARD_SIZE];
 ///////////////////////////////////
 
-int station_count;              // number of stored stations
+XastirStationDb xastir_legacy_stations;
 int station_count_save = 0;     // old copy of above
-DataRow *n_first;               // pointer to first element in name sorted station list
-DataRow *n_last;                // pointer to last  element in name sorted station list
-DataRow *t_oldest;              // pointer to first element in time sorted station list (oldest)
-DataRow *t_newest;              // pointer to last  element in time sorted station list (newest)
 time_t last_station_remove;     // last time we did a check for station removing
 time_t last_sec,curr_sec;       // for comparing if seconds in time have changed
 int next_time_sn;               // time serial number for unique time index
@@ -180,7 +178,6 @@ int st_direct_timeout = 60 * 60;        // 60 minutes.
 // Used in search_station_name() function.  Shortcuts into the
 // station list based on the least-significant 7 bits of the first
 // two letters of the callsign/object name.
-DataRow *station_shortcuts[16384];
 
 // used to time aloha calculations
 time_t aloha_time = 0;
@@ -458,13 +455,11 @@ int is_tracked_station(char *call_sign)
 
 /////////////////////////////////////////// Messages ///////////////////////////////////////////
 
-static long *msg_index;
-static long msg_index_end;
-static long msg_index_max;
-
-static Message *msg_data; // Array containing all messages,
-// including ones we've transmitted (via
-// loopback in the code)
+static XastirMessageStore legacy_message_store;
+#define msg_index (legacy_message_store.index)
+#define msg_index_end (legacy_message_store.count)
+#define msg_index_max (legacy_message_store.capacity)
+#define msg_data (legacy_message_store.data)
 
 time_t last_message_update = 0;
 ack_record *ack_list_head = NULL;  // Head of linked list storing most recent ack's
@@ -669,19 +664,7 @@ int message_update_time (void)
 
 int msg_comp_active(const void *a, const void *b)
 {
-  char temp_a[MAX_CALLSIGN+MAX_CALLSIGN+MAX_MESSAGE_ORDER+2];
-  char temp_b[MAX_CALLSIGN+MAX_CALLSIGN+MAX_MESSAGE_ORDER+2];
-
-  xastir_snprintf(temp_a, sizeof(temp_a), "%c%s%s%s",
-                  ((Message*)a)->active, ((Message*)a)->call_sign,
-                  ((Message*)a)->from_call_sign,
-                  ((Message*)a)->seq);
-  xastir_snprintf(temp_b, sizeof(temp_b), "%c%s%s%s",
-                  ((Message*)b)->active, ((Message*)b)->call_sign,
-                  ((Message*)b)->from_call_sign,
-                  ((Message*)b)->seq);
-
-  return(strcmp(temp_a, temp_b));
+  return xastir_msg_comp_active(a, b);
 }
 
 
@@ -690,16 +673,7 @@ int msg_comp_active(const void *a, const void *b)
 
 int msg_comp_data(const void *a, const void *b)
 {
-  char temp_a[MAX_CALLSIGN+MAX_CALLSIGN+MAX_MESSAGE_ORDER+1];
-  char temp_b[MAX_CALLSIGN+MAX_CALLSIGN+MAX_MESSAGE_ORDER+1];
-
-  xastir_snprintf(temp_a, sizeof(temp_a), "%s%s%s",
-                  msg_data[*(long*)a].call_sign, msg_data[*(long *)a].from_call_sign,
-                  msg_data[*(long *)a].seq);
-  xastir_snprintf(temp_b, sizeof(temp_b), "%s%s%s", msg_data[*(long*)b].call_sign,
-                  msg_data[*(long *)b].from_call_sign, msg_data[*(long *)b].seq);
-
-  return(strcmp(temp_a, temp_b));
+  return xastir_msg_comp_data(&legacy_message_store, a, b);
 }
 
 
@@ -708,81 +682,7 @@ int msg_comp_data(const void *a, const void *b)
 
 void msg_input_database(Message *m_fill)
 {
-  void *m_ptr;
-  long i;
-
-  if (msg_index_end == msg_index_max)
-  {
-    for (i = 0; i < msg_index_end; i++)
-    {
-
-      // Check for a record that is marked RECORD_NOTACTIVE.
-      // If found, use that record instead of malloc'ing a new
-      // one.
-      if (msg_data[msg_index[i]].active == RECORD_NOTACTIVE)
-      {
-
-        // Found an unused record.  Fill it in.
-        memcpy(&msg_data[msg_index[i]], m_fill, sizeof(Message));
-
-        // Sort msg_data
-        qsort(msg_data, (size_t)msg_index_end, sizeof(Message), msg_comp_active);
-
-        for (i = 0; i < msg_index_end; i++)
-        {
-          msg_index[i] = i;
-          if (msg_data[i].active == RECORD_NOTACTIVE)
-          {
-            msg_index_end = i;
-            break;
-          }
-        }
-
-        // Sort msg_index
-        qsort(msg_index, (size_t)msg_index_end, sizeof(long *), msg_comp_data);
-
-        // All done with this message.
-        return;
-      }
-    }
-
-    // Didn't find free message record.  Fetch some more space.
-    // Get more msg_data space.
-    m_ptr = realloc(msg_data, (msg_index_max+MSG_INCREMENT)*sizeof(Message));
-    if (m_ptr)
-    {
-      msg_data = m_ptr;
-
-      // Get more msg_index space
-      m_ptr = realloc(msg_index, (msg_index_max+MSG_INCREMENT)*sizeof(Message *));
-      if (m_ptr)
-      {
-        msg_index = m_ptr;
-        msg_index_max += MSG_INCREMENT;
-
-        //fprintf(stderr, "Max Message Array: %ld\n", msg_index_max);
-
-      }
-      else
-      {
-        XtWarning("Unable to allocate more space for message index.\n");
-      }
-    }
-    else
-    {
-      XtWarning("Unable to allocate more space for message database.\n");
-    }
-  }
-  if (msg_index_end < msg_index_max)
-  {
-    msg_index[msg_index_end] = msg_index_end;
-
-    // Copy message data into new message record.
-    memcpy(&msg_data[msg_index_end++], m_fill, sizeof(Message));
-
-    // Sort msg_index
-    qsort(msg_index, (size_t)msg_index_end, sizeof(long *), msg_comp_data);
-  }
+  xastir_msg_input_database(&legacy_message_store, m_fill);
 }
 
 
@@ -800,104 +700,7 @@ void msg_input_database(Message *m_fill)
 //
 long msg_find_data(Message *m_fill)
 {
-  long record_start, record_mid, record_end, return_record, done;
-  char tempfile[MAX_CALLSIGN+MAX_CALLSIGN+MAX_MESSAGE_ORDER+1];
-  char tempfill[MAX_CALLSIGN+MAX_CALLSIGN+MAX_MESSAGE_ORDER+1];
-
-
-  xastir_snprintf(tempfill, sizeof(tempfill), "%s%s%s",
-                  m_fill->call_sign,
-                  m_fill->from_call_sign,
-                  m_fill->seq);
-
-  return_record = -1L;
-  if (msg_index && msg_index_end >= 1)
-  {
-    /* more than one record */
-    record_start=0L;
-    record_end = (msg_index_end - 1);
-    record_mid=(record_end-record_start)/2;
-
-    done=0;
-    while (!done)
-    {
-
-      /* get data for record start */
-      xastir_snprintf(tempfile, sizeof(tempfile), "%s%s%s",
-                      msg_data[msg_index[record_start]].call_sign,
-                      msg_data[msg_index[record_start]].from_call_sign,
-                      msg_data[msg_index[record_start]].seq);
-
-      if (strcmp(tempfill, tempfile) < 0)
-      {
-        /* filename comes before */
-        /*fprintf(stderr,"Before No data found!!\n");*/
-        done=1;
-        break;
-      }
-      else   /* get data for record end */
-      {
-
-        xastir_snprintf(tempfile, sizeof(tempfile), "%s%s%s",
-                        msg_data[msg_index[record_end]].call_sign,
-                        msg_data[msg_index[record_end]].from_call_sign,
-                        msg_data[msg_index[record_end]].seq);
-
-        if (strcmp(tempfill,tempfile)>=0)   /* at end or beyond */
-        {
-          if (strcmp(tempfill, tempfile) == 0)
-          {
-            return_record = record_end;
-            //fprintf(stderr,"record %ld",return_record);
-          }
-
-          done=1;
-          break;
-        }
-        else if ((record_mid == record_start) || (record_mid == record_end))
-        {
-          /* no mid for compare check to see if in the middle */
-          done=1;
-          xastir_snprintf(tempfile, sizeof(tempfile), "%s%s%s",
-                          msg_data[msg_index[record_mid]].call_sign,
-                          msg_data[msg_index[record_mid]].from_call_sign,
-                          msg_data[msg_index[record_mid]].seq);
-          if (strcmp(tempfill,tempfile)==0)
-          {
-            return_record = record_mid;
-            //fprintf(stderr,"record: %ld",return_record);
-          }
-        }
-      }
-      if (!done)   /* get data for record mid */
-      {
-        xastir_snprintf(tempfile, sizeof(tempfile), "%s%s%s",
-                        msg_data[msg_index[record_mid]].call_sign,
-                        msg_data[msg_index[record_mid]].from_call_sign,
-                        msg_data[msg_index[record_mid]].seq);
-
-        if (strcmp(tempfill, tempfile) == 0)
-        {
-          return_record = record_mid;
-          //fprintf(stderr,"record %ld",return_record);
-          done = 1;
-          break;
-        }
-
-        if(strcmp(tempfill, tempfile)<0)
-        {
-          record_end = record_mid;
-        }
-        else
-        {
-          record_start = record_mid;
-        }
-
-        record_mid = record_start+(record_end-record_start)/2;
-      }
-    }
-  }
-  return(return_record);
+  return xastir_msg_find_data(&legacy_message_store, m_fill);
 }
 
 
@@ -906,7 +709,7 @@ long msg_find_data(Message *m_fill)
 
 void msg_replace_data(Message *m_fill, long record_num)
 {
-  memcpy(&msg_data[msg_index[record_num]], m_fill, sizeof(Message));
+  xastir_msg_replace_data(&legacy_message_store, m_fill, record_num);
 }
 
 
@@ -915,7 +718,7 @@ void msg_replace_data(Message *m_fill, long record_num)
 
 void msg_get_data(Message *m_fill, long record_num)
 {
-  memcpy(m_fill, &msg_data[msg_index[record_num]], sizeof(Message));
+  xastir_msg_get_data(&legacy_message_store, m_fill, record_num);
 }
 
 
@@ -4007,29 +3810,7 @@ static void extract_multipoints(DataRow *p_station,
 
 void init_weather(WeatherRow *weather)      // clear weather data
 {
-
-  weather->wx_sec_time             = (time_t)0;
-  weather->wx_storm                = 0;
-  weather->wx_time[0]              = '\0';
-  weather->wx_course[0]            = '\0';
-  weather->wx_speed[0]             = '\0';
-  weather->wx_speed_sec_time       = 0; // ??
-  weather->wx_gust[0]              = '\0';
-  weather->wx_hurricane_radius[0]  = '\0';
-  weather->wx_trop_storm_radius[0] = '\0';
-  weather->wx_whole_gale_radius[0] = '\0';
-  weather->wx_temp[0]              = '\0';
-  weather->wx_rain[0]              = '\0';
-  weather->wx_rain_total[0]        = '\0';
-  weather->wx_snow[0]              = '\0';
-  weather->wx_prec_24[0]           = '\0';
-  weather->wx_prec_00[0]           = '\0';
-  weather->wx_hum[0]               = '\0';
-  weather->wx_baro[0]              = '\0';
-  weather->wx_fuel_temp[0]         = '\0';
-  weather->wx_fuel_moisture[0]     = '\0';
-  weather->wx_type                 = '\0';
-  weather->wx_station[0]           = '\0';
+  xastir_init_weather(weather);
 }
 
 
@@ -4038,22 +3819,7 @@ void init_weather(WeatherRow *weather)      // clear weather data
 
 int get_weather_record(DataRow *fill)      // get or create weather storage
 {
-  int ok=1;
-
-  if (fill->weather_data == NULL)        // new weather data, allocate storage and init
-  {
-    fill->weather_data = malloc(sizeof(WeatherRow));
-    if (fill->weather_data == NULL)
-    {
-      fprintf(stderr,"Couldn't allocate memory in get_weather_record()\n");
-      ok = 0;
-    }
-    else
-    {
-      init_weather(fill->weather_data);
-    }
-  }
-  return(ok);
+  return xastir_get_weather_record(fill);
 }
 
 
@@ -4062,14 +3828,7 @@ int get_weather_record(DataRow *fill)      // get or create weather storage
 
 int delete_weather(DataRow *fill)      // delete weather storage, if allocated
 {
-
-  if (fill->weather_data != NULL)
-  {
-    free(fill->weather_data);
-    fill->weather_data = NULL;
-    return(1);
-  }
-  return(0);
+  return xastir_delete_weather(fill);
 }
 
 
@@ -4078,16 +3837,7 @@ int delete_weather(DataRow *fill)      // delete weather storage, if allocated
 
 int delete_multipoints(DataRow *fill)   // delete multipoint storage, if allocated
 {
-
-  if (fill->multipoint_data != NULL)
-  {
-    //fprintf(stderr,"Removing multipoint data, %s\n", fill->call_sign);
-    free(fill->multipoint_data);
-    fill->multipoint_data = NULL;
-    fill->num_multipoints = 0;
-    return(1);
-  }
-  return(0);
+  return xastir_delete_multipoints(fill);
 }
 
 
@@ -4177,140 +3927,11 @@ int store_trail_point(DataRow *p_station,
                       char *course,
                       short stn_flag)
 {
-
-  char flag;
-  TrackRow *ptr;
-
-  //fprintf(stderr,"store_trail_point: %s\n",p_station->call_sign);
-
-  if (debug_level & 256)
-  {
-    fprintf(stderr,"store_trail_point: for %s\n", p_station->call_sign);
-  }
-
-  // Allocate storage for the new track point
-  ptr = malloc(sizeof(TrackRow));
-  if (ptr == NULL)
-  {
-    if (debug_level & 256)
-    {
-      fprintf(stderr,"store_trail_point: MALLOC failed for trail.\n");
-    }
-    return(0); // Failed due to malloc
-  }
-
-  // Check whether we have any track data saved
-  if (p_station->newest_trackpoint == NULL)
-  {
-    // new trail, do initialization
-
-    if (debug_level & 256)
-    {
-      fprintf(stderr,"Creating new trail.\n");
-    }
-    tracked_stations++;
-
-    // Assign a new trail color 'cuz it's a new trail
-    p_station->trail_color = new_trail_color(p_station->call_sign);
-  }
-
-  // Start linking the record to the new end of the chain
-  ptr->prev = p_station->newest_trackpoint;   // Link to record or NULL
-  ptr->next = NULL;   // Newest end of chain
-
-  // Have an older record already?
-  if (p_station->newest_trackpoint != NULL)   // Yes
-  {
-    p_station->newest_trackpoint->next = ptr;
-  }
-  else    // No, this is our first record
-  {
-    p_station->oldest_trackpoint = ptr;
-  }
-
-  // Link it in as our newest record
-  p_station->newest_trackpoint = ptr;
-
-  if (debug_level & 256)
-  {
-    fprintf(stderr,"store_trail_point: Storing data for %s\n", p_station->call_sign);
-  }
-
-  ptr->trail_long_pos = lon;
-  ptr->trail_lat_pos  = lat;
-  ptr->sec            = sec;
-
-  if (alt[0] != '\0')
-  {
-    ptr->altitude = atoi(alt)*10;
-  }
-  else
-  {
-    ptr->altitude = -99999l;
-  }
-
-  if (speed[0] != '\0')
-  {
-    ptr->speed  = (long)(atof(speed)*18.52);
-  }
-  else
-  {
-    ptr->speed  = -1;
-  }
-
-  if (course[0] != '\0')
-  {
-    ptr->course = (int)(atof(course) + 0.5);  // Poor man's rounding
-  }
-  else
-  {
-    ptr->course = -1;
-  }
-
-  flag = '\0';                    // init flags
-
-  if ((stn_flag & ST_DIRECT) != 0)
-  {
-    flag |= TR_LOCAL;  // set "local" flag
-  }
-
-  if (ptr->prev != NULL)      // we have at least two points...
-  {
-    // Check whether distance between points is too far.  We
-    // must convert from degrees to the Xastir coordinate system
-    // units, which are 100th of a second.
-    if (    labs(lon - ptr->prev->trail_long_pos) > (trail_segment_distance * 60*60*100) ||
-            labs(lat - ptr->prev->trail_lat_pos)  > (trail_segment_distance * 60*60*100) )
-    {
-
-      // Set "new track" flag if there's
-      // "trail_segment_distance" degrees or more between
-      // points.  Originally was hard-coded to one degree, now
-      // set by a slider in the timing dialog.
-      flag |= TR_NEWTRK;
-    }
-    else
-    {
-      // Check whether trail went above our maximum time
-      // between points.  If so, don't draw segment.
-      if (labs(sec - ptr->prev->sec) > (trail_segment_time *60))
-      {
-
-        // Set "new track" flag if long delay between
-        // reception of two points.  Time is set by a slider
-        // in the timing dialog.
-        flag |= TR_NEWTRK;
-      }
-    }
-  }
-  else
-  {
-    // Set "new track" flag for first point received.
-    flag |= TR_NEWTRK;
-  }
-  ptr->flag = flag;
-
-  return(1);  // We succeeded
+  xastir_legacy_stations.now = sec_now();
+  xastir_legacy_stations.segment_distance = trail_segment_distance;
+  xastir_legacy_stations.segment_minutes = trail_segment_time;
+  xastir_legacy_stations.skip_duplicates = skip_dupe_checking;
+  return xastir_store_trail_point(&xastir_legacy_stations, p_station, lon, lat, sec, alt, speed, course, stn_flag);
 }
 
 
@@ -4322,65 +3943,11 @@ int store_trail_point(DataRow *p_station,
  */
 int is_trailpoint_echo(DataRow *p_station)
 {
-  int packets = 1;
-  time_t checktime;
-  char temp[50];
-  TrackRow *ptr;
-
-
-  // Check whether we're to skip checking for dupes (reading in
-  // objects/items from file is one such case).
-  //
-  if (skip_dupe_checking)
-  {
-    return(0);  // Say that it isn't an echo
-  }
-
-  // Start at newest end of linked list and compare.  Return if we're
-  // beyond the checktime.
-  ptr = p_station->newest_trackpoint;
-
-  if (ptr == NULL)
-  {
-    return(0);  // first point couldn't be an echo
-  }
-
-  checktime = p_station->sec_heard - TRAIL_ECHO_TIME*60;
-
-  while (ptr != NULL)
-  {
-
-    if (ptr->sec < checktime)
-    {
-      return(0);  // outside time frame, no echo found
-    }
-
-    if ((p_station->coord_lon == ptr->trail_long_pos)
-        && (p_station->coord_lat == ptr->trail_lat_pos)
-        && (p_station->speed[0] == '\0' || ptr->speed < 0
-            || (long)(atof(p_station->speed)*18.52) == ptr->speed)
-        // current: char knots, trail: long 0.1m (-1 is undef)
-        && (p_station->course[0] == '\0' || ptr->course <= 0
-            || atoi(p_station->course) == ptr->course)
-        // current: char, trail: int (-1 is undef)
-        && (p_station->altitude[0] == '\0' || ptr->altitude <= -99999l
-            || atoi(p_station->altitude)*10 == ptr->altitude))
-    {
-      // current: char, trail: int (-99999l is undef)
-      if (debug_level & 1)
-      {
-        fprintf(stderr,"delayed echo for %s",p_station->call_sign);
-        convert_lat_l2s(p_station->coord_lat, temp, sizeof(temp), CONVERT_HP_NORMAL);
-        fprintf(stderr," at %s",temp);
-        convert_lon_l2s(p_station->coord_lon, temp, sizeof(temp), CONVERT_HP_NORMAL);
-        fprintf(stderr," %s, already heard %d packets ago\n",temp,packets);
-      }
-      return(1);              // we found a delayed echo
-    }
-    ptr = ptr->prev;
-    packets++;
-  }
-  return(0);                      // no echo found
+  xastir_legacy_stations.now = sec_now();
+  xastir_legacy_stations.segment_distance = trail_segment_distance;
+  xastir_legacy_stations.segment_minutes = trail_segment_time;
+  xastir_legacy_stations.skip_duplicates = skip_dupe_checking;
+  return xastir_is_trailpoint_echo(&xastir_legacy_stations, p_station);
 }
 
 
@@ -4399,73 +3966,11 @@ int is_trailpoint_echo(DataRow *p_station)
 //
 void expire_trail_points(DataRow *p_station, time_t sec)
 {
-  int ii = 0;
-  int done = 0;
-  TrackRow *ptr;
-
-
-  //fprintf(stderr,"expire_trail_points: %s\n",p_station->call_sign);
-
-  if (debug_level & 256)
-  {
-    fprintf(stderr,"expire_trail_points: %s\n",p_station->call_sign);
-  }
-
-  // Check whether we have any track data saved
-  if (p_station->oldest_trackpoint == NULL)
-  {
-    return;     // Nothing to expire
-  }
-
-  // Iterate from oldest->newest trackpoints
-  while (!done && p_station->oldest_trackpoint != NULL)
-  {
-    ptr = p_station->oldest_trackpoint;
-    if ( (ptr->sec + sec) >= sec_now() )
-    {
-      // New trackpoint, within expire time.  Quit checking
-      // the rest of the trackpoints for this station.
-      done++;
-    }
-    else
-    {
-      //fprintf(stderr,"Found old trackpoint\n");
-
-      // Track too old.  Unlink this trackpoint and free it.
-      p_station->oldest_trackpoint = ptr->next;
-
-      // End of chain in this direction
-      if (p_station->oldest_trackpoint != NULL)
-      {
-        p_station->oldest_trackpoint->prev = NULL;
-      }
-      else
-      {
-        p_station->newest_trackpoint = NULL;
-      }
-
-      // Free up the space used by the expired trackpoint
-      free(ptr);
-
-      //fprintf(stderr,"Free'ing a trackpoint\n");
-
-      ii++;
-
-      // Reduce our count of mobile stations if the size of
-      // the track just went to zero.
-      if (p_station->oldest_trackpoint == NULL)
-      {
-        tracked_stations--;
-      }
-    }
-  }
-
-  if ( (debug_level & 256) && ii )
-  {
-    fprintf(stderr,"expire_trail_points: %d trackpoints free'd for %s\n",
-            ii,
-            p_station->call_sign);
-  }
+  xastir_legacy_stations.now = sec_now();
+  xastir_legacy_stations.segment_distance = trail_segment_distance;
+  xastir_legacy_stations.segment_minutes = trail_segment_time;
+  xastir_legacy_stations.skip_duplicates = skip_dupe_checking;
+  xastir_expire_trail_points(&xastir_legacy_stations, p_station, sec);
 }
 
 
@@ -4477,67 +3982,7 @@ void expire_trail_points(DataRow *p_station, time_t sec)
  */
 int delete_comments_and_status(DataRow *fill)
 {
-
-  // If the pointers are empty, we're done
-  if (       (fill->comment_data == NULL)
-             && (fill->status_data  == NULL) )
-  {
-    return(0);
-  }
-
-  if (fill->comment_data != NULL)     // We have comment records
-  {
-    CommentRow *ptr;
-    CommentRow *ptr_next;
-
-    ptr = fill->comment_data;
-    ptr_next = ptr->next;
-    while (ptr != NULL)
-    {
-      // Free the actual text string that we malloc'ed
-      if (ptr->text_ptr != NULL)
-      {
-        free(ptr->text_ptr);
-      }
-      free(ptr);
-      ptr = ptr_next; // Advance to next record
-      if (ptr != NULL)
-      {
-        ptr_next = ptr->next;
-      }
-      else
-      {
-        ptr_next = NULL;
-      }
-    }
-  }
-  if (fill->status_data != NULL)     // We have status records
-  {
-    CommentRow *ptr;
-    CommentRow *ptr_next;
-
-    ptr = fill->status_data;
-    ptr_next = ptr->next;
-    while (ptr != NULL)
-    {
-      // Free the actual text string that we malloc'ed
-      if (ptr->text_ptr != NULL)
-      {
-        free(ptr->text_ptr);
-      }
-      free(ptr);
-      ptr = ptr_next; // Advance to next record
-      if (ptr != NULL)
-      {
-        ptr_next = ptr->next;
-      }
-      else
-      {
-        ptr_next = NULL;
-      }
-    }
-  }
-  return(1);
+  return xastir_delete_comments_and_status(fill);
 }
 
 
@@ -4549,27 +3994,8 @@ int delete_comments_and_status(DataRow *fill)
  */
 int delete_trail(DataRow *fill)
 {
-
-  if (fill->newest_trackpoint != NULL)
-  {
-    TrackRow *current;
-    TrackRow *next;
-
-    // Free the TrackRow records
-    current = fill->oldest_trackpoint;
-    while (current != NULL)
-    {
-      next = current->next;
-      free(current);
-      current = next;
-    }
-
-    fill->oldest_trackpoint = NULL;
-    fill->newest_trackpoint = NULL;
-    tracked_stations--;
-    return(1);
-  }
-  return(0);
+  xastir_legacy_stations.now = sec_now();
+  return xastir_delete_trail(&xastir_legacy_stations, fill);
 }
 
 
@@ -5249,71 +4675,8 @@ void init_station_data(void)
  */
 void init_station(DataRow *p_station)
 {
-  // the list pointers should already be set
-  p_station->oldest_trackpoint  = NULL;         // no trail
-  p_station->newest_trackpoint  = NULL;         // no trail
-  p_station->trail_color        = 0;
-  p_station->weather_data       = NULL;         // no weather
-  p_station->coord_lat          = 0l;           //  90°N  \ undefined
-  p_station->coord_lon          = 0l;           // 180°W  / position
-  p_station->pos_amb            = 0;            // No ambiguity
-  p_station->error_ellipse_radius = 600;        // In cm, default 6 meters
-  p_station->lat_precision      = 60;           // In 100ths of seconds latitude (60 = 0.01 minutes)
-  p_station->lon_precision      = 60;           // In 100ths of seconds longitude (60 = 0.01 minutes)
-  p_station->call_sign[0]       = '\0';         // ?????
-  p_station->tactical_call_sign = NULL;
-  p_station->sec_heard          = 0;
-  p_station->time_sn            = 0;
-  p_station->flag               = 0;            // set all flags to inactive
-  p_station->object_retransmit  = -1;           // transmit forever
-  p_station->last_transmit_time = sec_now();    // Used for object/item decaying algorithm
-  p_station->transmit_time_increment = 0;       // Used in data_add()
-  //    p_station->last_modified_time = 0;            // Used for object/item dead-reckoning
-  p_station->record_type        = '\0';
-  p_station->data_via           = '\0';         // L local, T TNC, I internet, F file
-  p_station->heard_via_tnc_port = 0;
-  p_station->heard_via_tnc_last_time = 0;
-  p_station->last_port_heard    = 0;
-  p_station->num_packets        = 0;
-  p_station->aprs_symbol.aprs_type = '\0';
-  p_station->aprs_symbol.aprs_symbol = '\0';
-  p_station->aprs_symbol.special_overlay = '\0';
-  p_station->aprs_symbol.area_object.type           = AREA_NONE;
-  p_station->aprs_symbol.area_object.color          = AREA_GRAY_LO;
-  p_station->aprs_symbol.area_object.sqrt_lat_off   = 0;
-  p_station->aprs_symbol.area_object.sqrt_lon_off   = 0;
-  p_station->aprs_symbol.area_object.corridor_width = 0;
-  //    p_station->station_time_type  = '\0';
-  p_station->origin[0]          = '\0';        // no object
-  p_station->packet_time[0]     = '\0';
-  p_station->node_path_ptr      = NULL;
-  p_station->pos_time[0]        = '\0';
-  //    p_station->altitude_time[0]   = '\0';
-  p_station->altitude[0]        = '\0';
-  //    p_station->speed_time[0]      = '\0';
-  p_station->speed[0]           = '\0';
-  p_station->course[0]          = '\0';
-  p_station->bearing[0]         = '\0';
-  p_station->NRQ[0]             = '\0';
-  p_station->power_gain[0]      = '\0';
-  p_station->signal_gain[0]     = '\0';
-  p_station->signpost[0]        = '\0';
-  p_station->probability_min[0] = '\0';
-  p_station->probability_max[0] = '\0';
-  //    p_station->station_time[0]    = '\0';
-  p_station->sats_visible[0]    = '\0';
-  p_station->status_data        = NULL;
-  p_station->comment_data       = NULL;
-  p_station->df_color           = -1;
-
-  // Show that there are no other points associated with this
-  // station. We could also zero all the entries of the
-  // multipoints[][] array, but nobody should be looking there
-  // unless this is non-zero.
-  // KG4NBB
-
-  p_station->num_multipoints = 0;
-  p_station->multipoint_data = NULL;
+  xastir_legacy_stations.now = sec_now();
+  xastir_init_station(&xastir_legacy_stations, p_station);
 }
 
 
@@ -5325,112 +4688,8 @@ void init_station(DataRow *p_station)
  */
 void remove_name(DataRow *p_rem)        // todo: return pointer to next element
 {
-  int update_shortcuts = 0;
-  int hash_key;   // We use a 14-bit hash key
-
-
-  // Do a quick check to see if we're removing a station record
-  // that is pointed to by our pointer shortcuts array.
-  // If so, update our pointer shortcuts after we're done.
-  //
-  // We create the hash key out of the lower 7 bits of the first
-  // two characters, creating a 14-bit key (1 of 16384)
-  //
-  hash_key = (int)((p_rem->call_sign[0] & 0x7f) << 7);
-  hash_key = hash_key | (int)(p_rem->call_sign[1] & 0x7f);
-
-  if (station_shortcuts[hash_key] == p_rem)
-  {
-    // Yes, we're trying to remove a record that a hash key
-    // directly points to.  We'll need to redo that hash key
-    // after we remove the record.
-    update_shortcuts++;
-  }
-
-
-  // Proceed to the station record removal
-  //
-  if (p_rem->n_prev == NULL)   // Appears to be first element in list
-  {
-
-    if (n_first == p_rem)    // Yes, head of list
-    {
-
-      // Make list head point to 2nd element in list (or NULL)
-      // so that we can delete the current record.
-      n_first = p_rem->n_next;
-    }
-    else    // No, not first element in list.  Problem!  The
-    {
-      // list pointers are inconsistent for some reason.
-      // The chain has been broken and we have dangling
-      // pointers.
-
-      fprintf(stderr,
-              "remove_name(): ERROR: p->n_prev == NULL but p != n_first\n");
-
-      abort();    // Cause a core dump at this point
-      // Perhaps we could do some repair to the list pointers here?  Start
-      // at the other end of the chain and navigate back to this end, then
-      // fix up n_first to point to it?  This is at the risk of a memory
-      // leak, but at least Xastir might continue to run.
-
-    }
-  }
-  else    // Not the first element in the list.  Fix up pointers
-  {
-    // to skip the current record.
-    p_rem->n_prev->n_next = p_rem->n_next;
-  }
-
-
-  if (p_rem->n_next == NULL)   // Appears to be last element in list
-  {
-
-    if (n_last == p_rem)     // Yes, tail of list
-    {
-
-      // Make list tail point to previous element in list (or
-      // NULL) so that we can delete the current record.
-      n_last = p_rem->n_prev;
-    }
-    else    // No, not last element in list.  Problem!  The list
-    {
-      // pointers are inconsistent for some reason.  The
-      // chain has been broken and we have dangling
-      // pointers.
-
-      fprintf(stderr,
-              "remove_name(): ERROR: p->n_next == NULL but p != n_last\n");
-
-      abort();    // Cause a core dump at this point
-      // Perhaps we could do some repair to the list pointers here?  Start
-      // at the other end of the chain and navigate back to this end, then
-      // fix up n_last to point to it?  This is at the risk of a memory
-      // leak, but at least Xastir might continue to run.
-
-    }
-  }
-  else    // Not the last element in the list.  Fix up pointers to
-  {
-    // skip the current record.
-    p_rem->n_next->n_prev = p_rem->n_prev;
-  }
-
-
-  // Update our pointer shortcuts.  Pass the removed hash_key to
-  // the function so that we can try to redo just that hash_key
-  // pointer.
-  if (update_shortcuts)
-  {
-    //fprintf(stderr,"\t\t\t\t\t\tRemoval of hash key: %i\n", hash_key);
-
-    // The -1 tells the function to redo all of the hash table
-    // pointers because we deleted one of them.  Later we could
-    // optimize this so that only the specific pointer is fixed
-    // up.
-    station_shortcuts_update_function(-1, NULL);
-  }
+  xastir_legacy_stations.now = sec_now();
+  xastir_remove_name(&xastir_legacy_stations, p_rem);
 }
 
 
@@ -5442,74 +4701,8 @@ void remove_name(DataRow *p_rem)        // todo: return pointer to next element
  */
 void remove_time(DataRow *p_rem)        // todo: return pointer to next element
 {
-
-  if (p_rem->t_older == NULL)   // Appears to be first element in list
-  {
-
-    if (t_oldest == p_rem)    // Yes, head of list (oldest)
-    {
-
-      // Make oldest list head point to 2nd element in list (or NULL)
-      // so that we can delete the current record.
-      t_oldest = p_rem->t_newer;
-    }
-    else    // No, not first (oldest) element in list.  Problem!
-    {
-      // The list pointers are inconsistent for some
-      // reason.  The chain has been broken and we have
-      // dangling pointers.
-
-      fprintf(stderr,
-              "remove_time(): ERROR: p->t_older == NULL but p != t_oldest\n");
-
-      abort();    // Cause a core dump at this point
-      // Perhaps we could do some repair to the list pointers here?  Start
-      // at the other end of the chain and navigate back to this end, then
-      // fix up t_oldest to point to it?  This is at the risk of a memory
-      // leak, but at least Xastir might continue to run.
-
-    }
-  }
-  else    // Not the first (oldest) element in the list.  Fix up
-  {
-    // pointers to skip the current record.
-    p_rem->t_older->t_newer = p_rem->t_newer;
-  }
-
-
-  if (p_rem->t_newer == NULL)   // Appears to be last (newest) element in list
-  {
-
-    if (t_newest == p_rem)     // Yes, head of list (newest)
-    {
-
-      // Make newest list head point to previous element in
-      // list (or NULL) so that we can delete the current
-      // record.
-      t_newest = p_rem->t_older;
-    }
-    else    // No, not newest element in list.  Problem!  The
-    {
-      // list pointers are inconsistent for some reason.
-      // The chain has been broken and we have dangling
-      // pointers.
-
-      fprintf(stderr,
-              "remove_time(): ERROR: p->t_newer == NULL but p != t_newest\n");
-
-      abort();    // Cause a core dump at this point
-      // Perhaps we could do some repair to the list pointers here?  Start
-      // at the other end of the chain and navigate back to this end, then
-      // fix up t_newest to point to it?  This is at the risk of a memory
-      // leak, but at least Xastir might continue to run.
-
-    }
-  }
-  else    // Not the newest element in the list.  Fix up pointers
-  {
-    // to skip the current record.
-    p_rem->t_newer->t_older = p_rem->t_older;
-  }
+  xastir_legacy_stations.now = sec_now();
+  xastir_remove_time(&xastir_legacy_stations, p_rem);
 }
 
 
@@ -5522,44 +4715,8 @@ void remove_time(DataRow *p_rem)        // todo: return pointer to next element
  */
 void insert_name(DataRow *p_new, DataRow *p_name)
 {
-
-  // Set up pointer to next record (or NULL), sorted by name
-  p_new->n_next = p_name;
-
-  if (p_name == NULL)         // Add to end of list
-  {
-
-    p_new->n_prev = n_last;
-
-    if (n_last == NULL)     // If we have an empty list
-    {
-      n_first = p_new;  // Add it to the head of the list
-    }
-
-    else    // List wasn't empty, add to the end of the list.
-    {
-      n_last->n_next = p_new;
-    }
-
-    n_last = p_new;
-  }
-
-  else    // Insert new record ahead of p_name record
-  {
-
-    p_new->n_prev = p_name->n_prev;
-
-    if (p_name->n_prev == NULL)     // add to begin of list
-    {
-      n_first = p_new;
-    }
-    else
-    {
-      p_name->n_prev->n_next = p_new;
-    }
-
-    p_name->n_prev = p_new;
-  }
+  xastir_legacy_stations.now = sec_now();
+  xastir_insert_name(&xastir_legacy_stations, p_new, p_name);
 }
 
 
@@ -5574,43 +4731,8 @@ void insert_name(DataRow *p_new, DataRow *p_name)
  */
 void insert_time(DataRow *p_new, DataRow *p_time)
 {
-
-  // Set up pointer to next record (or NULL), sorted by time
-  p_new->t_newer = p_time;
-
-  if (p_time == NULL)                 // add to end of list (becomes newest station)
-  {
-
-    p_new->t_older = t_newest;         // connect to previous end of list
-
-    if (t_newest == NULL)             // if list empty, create list
-    {
-      t_oldest = p_new;  // it's now our only station on the list
-    }
-    else
-    {
-      t_newest->t_newer = p_new;  // list not empty, link original last record to our new one
-    }
-
-    t_newest = p_new;                 // end of list (newest record pointer) points to our new record
-  }
-
-  else                              // Else we're inserting into the middle of the list somewhere
-  {
-
-    p_new->t_older = p_time->t_older;
-
-    if (p_time->t_older == NULL)     // add to end of list (new record becomes oldest station)
-    {
-      t_oldest = p_new;
-    }
-    else
-    {
-      p_time->t_older->t_newer = p_new;  // else
-    }
-
-    p_time->t_older = p_new;
-  }
+  xastir_legacy_stations.now = sec_now();
+  xastir_insert_time(&xastir_legacy_stations, p_new, p_time);
 }
 
 
@@ -5622,14 +4744,8 @@ void insert_time(DataRow *p_new, DataRow *p_time)
  */
 void delete_station_memory(DataRow *p_del)
 {
-  if (p_del == NULL)
-  {
-    return;
-  }
-  remove_name(p_del);
-  remove_time(p_del);
-  free(p_del);
-  station_count--;
+  xastir_legacy_stations.now = sec_now();
+  xastir_delete_station_memory(&xastir_legacy_stations, p_del);
 }
 
 
@@ -5642,23 +4758,10 @@ void delete_station_memory(DataRow *p_del)
  *
  *  Returns NULL if malloc error.
  */
-/*@null@*/ DataRow *insert_new_station(DataRow *p_name, DataRow *p_time)
+DataRow *insert_new_station(DataRow *p_name, DataRow *p_time)
 {
-  DataRow *p_new;
-
-  p_new = (DataRow *)calloc(1, sizeof(DataRow));
-
-  if (p_new != NULL)                  // we really got the memory
-  {
-    insert_name(p_new,p_name);      // insert element into name ordered list
-    insert_time(p_new,p_time);      // insert element into time ordered list
-  }
-  else    // p_new == NULL
-  {
-    fprintf(stderr,"ERROR: we got no memory for station storage\n");
-  }
-
-  return(p_new);                      // return pointer to new element
+  xastir_legacy_stations.now = sec_now();
+  return xastir_insert_new_station(&xastir_legacy_stations, p_name, p_time);
 }
 
 
@@ -5671,123 +4774,19 @@ void delete_station_memory(DataRow *p_del)
  *
  *  Returns NULL if mallc error.
  */
-/*@null@*/ DataRow *add_new_station(DataRow *p_name, DataRow *p_time, char *call)
+DataRow *add_new_station(DataRow *p_name, DataRow *p_time, char *call)
 {
-  DataRow *p_new;
-  int hash_key;   // We use a 14-bit hash key
-  char *tactical_call;
-
-
-  if (call[0] == '\0')
-  {
-    // Do nothing.  No update needed.  Callsign is empty.
-    return(NULL);
-  }
-
-  //fprintf(stderr,"Adding new station: %s\n",call);
-
-  p_new = insert_new_station(p_name,p_time);  // allocate memory
-
-  if (p_new == NULL)
-  {
-    // Couldn't allocate space for the station
-    return(NULL);
-  }
-
-  init_station(p_new);                    // initialize new station record
-  xastir_snprintf(p_new->call_sign,
-                  sizeof(p_new->call_sign),
-                  "%s",
-                  call);
-  station_count++;
-
-  // Do some quick checks to see if we just inserted a new hash
-  // key or inserted at the beginning of a hash key (making the
-  // old pointer incorrect).  If so, update our pointers to match.
-
-  // We create the hash key out of the lower 7 bits of the first
-  // two characters, creating a 14-bit key (1 of 16384)
-  //
-  hash_key = (int)((call[0] & 0x7f) << 7);
-  hash_key = hash_key | (int)(call[1] & 0x7f);
-
-  if (station_shortcuts[hash_key] == NULL)
-  {
-    // New hash key entry point found.  Fill in the pointer.
-    //fprintf(stderr,"New hash key: %i, call: %s\n",
-    //    hash_key,
-    //    call);
-
-    station_shortcuts_update_function(hash_key, p_new);
-  }
-  else if (p_new->n_prev == NULL)
-  {
-    // We just inserted at the beginning of the list.  Assume
-    // that we inserted at the beginning of our hash_key
-    // segment.
-    //fprintf(stderr,"Start of list hash_key: %i, call: %s\n",
-    //    hash_key,
-    //    call);
-
-    station_shortcuts_update_function(hash_key, p_new);
-  }
-  else
-  {
-    // Check whether either of the first two chars of the new
-    // callsign and the previous callsign are different.  If so,
-    // we need to update the hash table entry for our new record
-    // 'cuz we're at the start of a new hash table entry.
-    if (p_new->n_prev->call_sign[0] != call[0]
-        || p_new->n_prev->call_sign[1] != call[1])
-    {
-      //fprintf(stderr,"Hash segment start: %i, call: %s\n",
-      //    hash_key,
-      //    call);
-
-      station_shortcuts_update_function(hash_key, p_new);
+  xastir_legacy_stations.now = sec_now();
+  DataRow *station = xastir_add_new_station(&xastir_legacy_stations, p_name, p_time, call);
+  if (station) {
+    const char *tactical = get_tactical_from_hash(call);
+    if (tactical && tactical[0]) {
+      station->tactical_call_sign = malloc(MAX_TACTICAL_CALL + 1);
+      if (station->tactical_call_sign)
+        xastir_snprintf(station->tactical_call_sign, MAX_TACTICAL_CALL + 1, "%s", tactical);
     }
   }
-
-  //if (p_new->n_prev != NULL) {
-  //    fprintf(stderr,"\tprev: %s",
-  //        p_new->n_prev->call_sign);
-  //}
-
-  //if (p_new->n_next != NULL) {
-  //    fprintf(stderr,"\t\tnext: %s",
-  //        p_new->n_next->call_sign);
-  //}
-  //
-  //fprintf(stderr,"\n");
-
-  // Check whether we have a tactical call to assign to this
-  // station in our tactical hash table.
-  //fprintf(stderr,"Call:'%s'\n", call);
-  tactical_call = get_tactical_from_hash(call);
-
-  // If tactical call found and not blank
-  if (tactical_call && tactical_call[0] != '\0')
-  {
-
-    // Malloc some memory to hold it in the station record.
-    p_new->tactical_call_sign = (char *)malloc(MAX_TACTICAL_CALL+1);
-    CHECKMALLOC(p_new->tactical_call_sign);
-
-    //fprintf(stderr,"***Assigning tactical call to new record***\n");
-    xastir_snprintf(p_new->tactical_call_sign,
-                    MAX_TACTICAL_CALL+1,
-                    "%s",
-                    tactical_call);
-
-    //if (tactical_call[0] == '\0')
-    //    fprintf(stderr,"Blank tactical call\n");
-  }
-  else
-  {
-    //fprintf(stderr,".");
-  }
-
-  return(p_new);                      // return pointer to new element
+  return station;
 }
 
 
@@ -5951,12 +4950,8 @@ int add_simple_station(DataRow *p_new_station,char *station, char *origin, char 
  */
 void move_station_time(DataRow *p_curr, DataRow *p_time)
 {
-
-  if (p_curr != NULL)                 // need a valid record
-  {
-    remove_time(p_curr);
-    insert_time(p_curr,p_time);
-  }
+  xastir_legacy_stations.now = sec_now();
+  xastir_move_station_time(&xastir_legacy_stations, p_curr, p_time);
 }
 
 
@@ -5968,12 +4963,8 @@ void move_station_time(DataRow *p_curr, DataRow *p_time)
  */
 void move_station_name(DataRow *p_curr, DataRow *p_name)
 {
-
-  if (p_curr != NULL)                 // need a valid record
-  {
-    remove_name(p_curr);
-    insert_name(p_curr,p_name);
-  }
+  xastir_legacy_stations.now = sec_now();
+  xastir_move_station_name(&xastir_legacy_stations, p_curr, p_name);
 }
 
 
@@ -6003,73 +4994,8 @@ void move_station_name(DataRow *p_curr, DataRow *p_name)
 //
 void station_shortcuts_update_function(int hash_key_in, DataRow *p_rem)
 {
-  int ii;
-  DataRow *ptr;
-  int prev_hash_key = 0x0000;
-  int hash_key;
-
-
-  // I just changed the function so that we can pass in the hash_key
-  // that we wish to update:  We should be able to speed things up by
-  // updating one hash key instead of all 16384 pointers.
-
-  if ( (hash_key_in != -1)
-       && (hash_key_in >= 0)
-       && (hash_key_in < 16384) )
-  {
-
-    // We're adding/changing a hash key entry
-    station_shortcuts[hash_key_in] = p_rem;
-    //fprintf(stderr,"%i ",hash_key_in);
-  }
-  else    // We're removing a hash key entry.
-  {
-
-    // Clear and rebuild the entire hash table.
-
-    //??????????????????????????????????????????????????
-    // Clear all of the pointers before we begin????
-    //??????????????????????????????????????????????????
-    for (ii = 0; ii < 16384; ii++)
-    {
-      station_shortcuts[ii] = NULL;
-    }
-
-    ptr = n_first;  // Start of list
-
-
-    // Loop through entire list, writing the pointer into the
-    // station_shortcuts array whenever a new character is
-    // encountered.  Do this until the end of the array or the end
-    // of the list.
-    //
-    while ( (ptr != NULL) && (prev_hash_key < 16384) )
-    {
-
-      // We create the hash key out of the lower 7 bits of the
-      // first two characters, creating a 14-bit key (1 of 16384)
-      //
-      hash_key = (int)((ptr->call_sign[0] & 0x7f) << 7);
-      hash_key = hash_key | (int)(ptr->call_sign[1] & 0x7f);
-
-      if (hash_key > prev_hash_key)
-      {
-
-        // We found the next hash_key.  Store the pointer at the
-        // correct location.
-        if (hash_key < 16384)
-        {
-          station_shortcuts[hash_key] = ptr;
-          //fprintf(stderr,"%i ", hash_key);
-        }
-        prev_hash_key = hash_key;
-      }
-      ptr = ptr->n_next;
-    }
-    //fprintf(stderr,"\n");
-
-  }
-
+  xastir_legacy_stations.now = sec_now();
+  xastir_station_shortcuts_update_function(&xastir_legacy_stations, hash_key_in, p_rem);
 }
 
 
@@ -6092,118 +5018,8 @@ void station_shortcuts_update_function(int hash_key_in, DataRow *p_rem)
 //
 int search_station_name(DataRow **p_name, char *call, int exact)
 {
-  int kk;
-  int hash_key;
-  int result;
-  int ok = 1;
-
-
-  (*p_name) = n_first;                                // start of alphabet
-
-  if (call[0] == '\0')
-  {
-    // If call we're searching for is empty, return n_first as
-    // the pointer.
-    return(0);
-  }
-
-  // We create the hash key out of the lower 7 bits of the first
-  // two characters, creating a 14-bit key (1 of 16384)
-  //
-  hash_key = (int)((call[0] & 0x7f) << 7);
-  hash_key = hash_key | (int)(call[1] & 0x7f);
-
-  // Look for a match using hash table lookup
-  //
-  (*p_name) = station_shortcuts[hash_key];
-
-  if ((*p_name) == NULL)      // No hash-table entry found.
-  {
-    int mm;
-
-    //fprintf(stderr,"No hash-table entry found: call:%s\n",call);
-
-
-    // No index found for that letter.  Walk the array until
-    // we find an entry that is filled.  That'll be our
-    // potential insertion point (insertion into the list will
-    // occur just ahead of the hash entry).
-    for (mm = hash_key; mm < 16384; mm++)
-    {
-      if (station_shortcuts[mm] != NULL)
-      {
-        (*p_name) = station_shortcuts[mm];
-        break;
-      }
-    }
-  }
-//    else {
-//fprintf(stderr,"Hash key %d=%s, searching for call: %s\n",
-//    hash_key,
-//    (*p_name)->call_sign,
-//    call);
-//    }
-
-  // If we got to this point, we either have a NULL pointer or a
-  // real hash-table pointer entry.  A non-NULL pointer means that
-  // we have a match for the lower seven bits of the first two
-  // characters of the callsign.  Check the rest of the callsign,
-  // and jump out of the loop if we get outside the linear search
-  // area (if first two chars are different).
-
-  kk = (int)strlen(call);
-
-  // Search linearly through list.  Stop at end of list or break.
-  while ( (*p_name) != NULL)
-  {
-
-    if (exact)
-    {
-      // Check entire string for exact match
-      result = strcmp( call, (*p_name)->call_sign );
-    }
-    else
-    {
-      // Check first part of string for match
-      result = strncmp( call, (*p_name)->call_sign, kk );
-    }
-
-    if (result < 0)     // We went past the right location.
-    {
-      // We're done.
-      ok = 0;
-      //fprintf(stderr,"Went past possible entry point, searching for call: %s\n",call);
-      break;
-    }
-    else if (result == 0)   // Found a possible match
-    {
-      //fprintf(stderr,"Found possible match: list:%s call:%s\n",
-      //    (*p_name)->call_sign,
-      //    call);
-      break;
-    }
-    else    // Result > 0.  We haven't found it yet.
-    {
-      (*p_name) = (*p_name)->n_next;  // Next element in list
-    }
-  }
-
-  // Did we find anything?
-  if ( (*p_name) == NULL)
-  {
-    ok = 0;
-    //fprintf(stderr,"End of list reached, call: %s\n",call);
-    return(ok); // Nope.  No match found.
-  }
-
-  // If "exact" is set, check that the string lengths match as
-  // well.  If not, we didn't find it.
-  if (exact && ok && strlen((*p_name)->call_sign) != strlen(call))
-  {
-    ok = 0;
-  }
-
-  return(ok);         // if not ok: p_name points to correct insert position in name list
+  xastir_legacy_stations.now = sec_now();
+  return xastir_search_station_name(&xastir_legacy_stations, p_name, call, exact);
 }
 
 
@@ -6216,56 +5032,8 @@ int search_station_name(DataRow **p_name, char *call, int exact)
  */
 int search_station_time(DataRow **p_time, time_t heard, int serial)
 {
-  int ok = 1;
-
-  (*p_time) = t_newest;                                 // newest station
-  if (heard == 0)                                     // we want the newest station
-  {
-    if (t_newest == NULL)
-    {
-      ok = 0;  // empty list
-    }
-  }
-  else
-  {
-    while((*p_time) != NULL)                        // check time
-    {
-      if ((*p_time)->sec_heard <= heard)          // compare
-      {
-        break;  // found time or earlier
-      }
-      (*p_time) = (*p_time)->t_older;              // next element
-    }
-    // we now probably have found the entry
-    if ((*p_time) != NULL && (*p_time)->sec_heard == heard)
-    {
-      // we got a match, but there may be more of them
-      if (serial >= 0)                            // check serial number, ignored if -1
-      {
-        while((*p_time) != NULL)                // for unique time index
-        {
-          if ((*p_time)->sec_heard == heard && (*p_time)->time_sn <= serial)  // compare
-          {
-            break;  // found it (same time, maybe earlier SN)
-          }
-          if ((*p_time)->sec_heard < heard)   // compare
-          {
-            break;  // found it (earlier time)
-          }
-          (*p_time) = (*p_time)->t_older;      // consider next element
-        }
-        if ((*p_time) == NULL || (*p_time)->sec_heard != heard || (*p_time)->time_sn != serial)
-        {
-          ok = 0;  // no perfect match
-        }
-      }
-    }
-    else
-    {
-      ok = 0;  // no perfect match
-    }
-  }
-  return(ok);
+  xastir_legacy_stations.now = sec_now();
+  return xastir_search_station_time(&xastir_legacy_stations, p_time, heard, serial);
 }
 
 
@@ -6277,23 +5045,7 @@ int search_station_time(DataRow **p_time, time_t heard, int serial)
  */
 int next_station_name(DataRow **p_curr)
 {
-
-  if ((*p_curr) == NULL)
-  {
-    (*p_curr) = n_first;
-  }
-  else
-  {
-    (*p_curr) = (*p_curr)->n_next;
-  }
-  if ((*p_curr) != NULL)
-  {
-    return(1);
-  }
-  else
-  {
-    return(0);
-  }
+  return xastir_next_station_name(&xastir_legacy_stations, p_curr);
 }
 
 
@@ -6305,23 +5057,7 @@ int next_station_name(DataRow **p_curr)
  */
 int prev_station_name(DataRow **p_curr)
 {
-
-  if ((*p_curr) == NULL)
-  {
-    (*p_curr) = n_last;
-  }
-  else
-  {
-    (*p_curr) = (*p_curr)->n_prev;
-  }
-  if ((*p_curr) != NULL)
-  {
-    return(1);
-  }
-  else
-  {
-    return(0);
-  }
+  return xastir_prev_station_name(&xastir_legacy_stations, p_curr);
 }
 
 
@@ -6333,23 +5069,7 @@ int prev_station_name(DataRow **p_curr)
  */
 int next_station_time(DataRow **p_curr)
 {
-
-  if ((*p_curr) == NULL)
-  {
-    (*p_curr) = t_oldest;  // Grab oldest station if NULL passed to us???
-  }
-  else
-  {
-    (*p_curr) = (*p_curr)->t_newer;  // Else grab newer station
-  }
-  if ((*p_curr) != NULL)
-  {
-    return(1);
-  }
-  else
-  {
-    return(0);
-  }
+  return xastir_next_station_time(&xastir_legacy_stations, p_curr);
 }
 
 
@@ -6361,23 +5081,7 @@ int next_station_time(DataRow **p_curr)
  */
 int prev_station_time(DataRow **p_curr)
 {
-
-  if ((*p_curr) == NULL)
-  {
-    (*p_curr) = t_newest;  // Grab newest station if NULL passed to us???
-  }
-  else
-  {
-    (*p_curr) = (*p_curr)->t_older;
-  }
-  if ((*p_curr) != NULL)
-  {
-    return(1);
-  }
-  else
-  {
-    return(0);
-  }
+  return xastir_prev_station_time(&xastir_legacy_stations, p_curr);
 }
 
 
@@ -6508,24 +5212,8 @@ int position_on_extd_screen(long lat, long lon)
  */
 void station_del(char *call)
 {
-  DataRow *p_name;                      // DK7IN: do it with move... ?
-
-  if (search_station_name(&p_name, call, 1))
-  {
-    (void)delete_trail(p_name);       // Free track storage if it exists.
-    (void)delete_weather(p_name);     // Free weather memory, if allocated
-    (void)delete_multipoints(p_name); // Free multipoint memory, if allocated
-    (void)delete_comments_and_status(p_name);  // Free comment storage if it exists
-    if (p_name->node_path_ptr != NULL)// Free malloc'ed path
-    {
-      free(p_name->node_path_ptr);
-    }
-    if (p_name->tactical_call_sign != NULL)
-    {
-      free(p_name->tactical_call_sign);
-    }
-    delete_station_memory(p_name);    // Free memory
-  }
+  xastir_legacy_stations.now = sec_now();
+  xastir_station_del(&xastir_legacy_stations, call);
 }
 
 
@@ -6538,44 +5226,8 @@ void station_del(char *call)
  */
 void station_del_ptr(DataRow *p_name)
 {
-
-  //fprintf(stderr,"db.c:station_del_ptr(): %s\n",p_name->call_sign);
-
-  if (p_name != NULL)
-  {
-
-    // A bit of debug code:  Attempting to find out if we're
-    // deleting our own objects from time to time.  Leave this
-    // in until we're sure the problem has been fixed.
-    ////        if (is_my_call(p_name->origin,1)) { // Check SSID as well
-    //        if ( is_my_object_item(p_name) ) { // Check SSID as well
-    //            fprintf(stderr,"station_del_ptr: Removing my own object: %s\n",
-    //                p_name->call_sign);
-    //        }
-
-#ifdef EXPIRE_DEBUG
-    fprintf(stderr,"Removing: %s heard %d seconds ago\n",p_name->call_sign, (int)(sec_now() - p_name->sec_heard));
-#endif
-
-    (void)delete_trail(p_name);     // Free track storage if it exists.
-    (void)delete_weather(p_name);   // free weather memory, if allocated
-    (void)delete_multipoints(p_name); // Free multipoint memory, if allocated
-    (void)delete_comments_and_status(p_name);  // Free comment storage if it exists
-    if (p_name->node_path_ptr != NULL)  // Free malloc'ed path
-    {
-      free(p_name->node_path_ptr);
-    }
-    if (p_name->tactical_call_sign != NULL)
-    {
-      free(p_name->tactical_call_sign);
-    }
-    delete_station_memory(p_name);  // free memory, update
-    // linked lists, update
-    // station_count
-
-    //fprintf(stderr,"db.c:station_del_ptr(): Deleted station\n");
-
-  }
+  xastir_legacy_stations.now = sec_now();
+  xastir_station_del_ptr(&xastir_legacy_stations, p_name);
 }
 
 
@@ -6587,35 +5239,8 @@ void station_del_ptr(DataRow *p_name)
  */
 void delete_all_stations(void)
 {
-  DataRow *p_name;
-  DataRow *p_curr;
-  int ii;
-
-
-  // Clear all of the pointers before we begin
-  for (ii = 0; ii < 16384; ii++)
-  {
-    station_shortcuts[ii] = NULL;
-  }
-
-  p_name = n_first;
-  while (p_name != NULL)
-  {
-    p_curr = p_name;
-    p_name = p_name->n_next;
-    station_del_ptr(p_curr);
-    //(void)delete_trail(p_curr);     // free trail memory, if allocated
-    //(void)delete_weather(p_curr);   // free weather memory, if allocated
-    //(void)delete_multipoints(p_curr);// Free multipoint memory, if allocated
-    //delete_station_memory(p_curr);  // free station memory
-  }
-  if (station_count != 0)
-  {
-    fprintf(stderr,
-            "ERROR: station_count should be 0 after stations delete, is %d\n",
-            station_count);
-    station_count = 0;
-  }
+  xastir_legacy_stations.now = sec_now();
+  xastir_delete_all_stations(&xastir_legacy_stations);
 }
 
 
@@ -6875,65 +5500,7 @@ int extract_comp_position(DataRow *station, char **info, int UNUSED(type))
 //
 int extract_speed_course(char *info, char *speed, char *course)
 {
-  int i,found,len;
-
-  len = (int)strlen(info);
-  found = 0;
-  speed[0] = course[0] = '\0';
-  if (len >= 7)
-  {
-    found = 1;
-    for(i=0; found && i<7; i++)             // check data format
-    {
-      if (i==3)                           // check separator
-      {
-        if (info[i]!='/')
-        {
-          found = 0;
-        }
-      }
-      else
-      {
-        if( !( isdigit((int)info[i])
-               || (info[i] == ' ')     // Spaces and periods are allowed.  Need these
-               || (info[i] == '.') ) ) // here so that we can get the field deleted
-        {
-          found = 0;
-        }
-      }
-    }
-  }
-  if (found)
-  {
-    substr(course,info,3);
-    substr(speed,info+4,3);
-    for (i=0; i<=len-7; i++)      // delete speed/course from info field
-    {
-      info[i] = info[i+7];
-    }
-  }
-  if (!found || atoi(course) < 1)     // course 0 means undefined
-  {
-    //        speed[0] ='\0';   // Don't do this!  We can have a valid
-    //        speed without a valid course.
-    course[0]='\0';
-  }
-  else    // recheck data format looking for undefined fields
-  {
-    for(i=0; i<2; i++)
-    {
-      if( !(isdigit((int)speed[i]) ) )
-      {
-        speed[0] = '\0';
-      }
-      if( !(isdigit((int)course[i]) ) )
-      {
-        course[0] = '\0';
-      }
-    }
-  }
-
-  return(found);
+  return xastir_extract_speed_course(info, speed, course);
 }
 
 
@@ -6989,39 +5556,7 @@ int extract_bearing_NRQ(char *info, char *bearing, char *nrq)
  */
 int extract_altitude(char *info, char *altitude)
 {
-  int i,ofs,found,len;
-
-  found=0;
-  len = (int)strlen(info);
-  for(ofs=0; !found && ofs<len-8; ofs++)      // search for start sequence
-    if (strncmp(info+ofs,"/A=",3)==0)
-    {
-      found=1;
-      // Are negative altitudes even defined?  Yes!  In Mic-E spec to -10,000 meters
-      if(!isdigit((int)info[ofs+3]) && info[ofs+3]!='-')  // First char must be digit or '-'
-      {
-        found=0;
-      }
-      for(i=4; found && i<9; i++)         // check data format for next 5 chars
-        if(!isdigit((int)info[ofs+i]))
-        {
-          found=0;
-        }
-    }
-  if (found)
-  {
-    ofs--;  // was one too much on exit from for loop
-    substr(altitude,info+ofs+3,6);
-    for (i=ofs; i<=len-9; i++)      // delete altitude from info field
-    {
-      info[i] = info[i+9];
-    }
-  }
-  else
-  {
-    altitude[0] = '\0';
-  }
-  return(found);
+  return xastir_extract_altitude(info, altitude);
 }
 
 
@@ -8477,183 +7012,8 @@ int extract_GLL(DataRow *p_station,char *data,char *call_sign, char *path, int *
 //
 void add_status(DataRow *p_station, char *status_string)
 {
-  CommentRow *ptr;
-  int add_it = 0;
-  int len;
-
-
-  len = strlen(status_string);
-
-  // Eliminate line-end chars
-  if (len > 1)
-  {
-    if ( (status_string[len-1] == '\n')
-         || (status_string[len-1] == '\r') )
-    {
-      status_string[len-1] = '\0';
-    }
-  }
-
-  // Shorten it
-  //fprintf(stderr,"1Status: (%s)\n",status_string);
-  (void)remove_trailing_spaces(status_string);
-  //fprintf(stderr,"2Status: (%s)\n",status_string);
-  (void)remove_leading_spaces(status_string);
-  //fprintf(stderr,"3Status: (%s)\n",status_string);
-
-  len = strlen(status_string);
-
-  // Check for valid pointer
-  if (p_station != NULL)
-  {
-
-    // We should probably create a new station record for this station
-    // if there isn't one.  This allows us to collect as much info about
-    // a station as we can until a posit comes in for it.  Right now we
-    // don't do this.  If we decide to do this in the future, we also
-    // need a method to find out the info about that station without
-    // having to click on an icon, 'cuz the symbol won't be on our map
-    // until we have a posit.
-
-    //fprintf(stderr,"Station:%s\tStatus:%s\n",p_station->call_sign,status_string);
-
-    // Check whether we have any data stored for this station
-    if (p_station->status_data == NULL)
-    {
-      if (len > 0)
-      {
-        // No status stored yet and new status is non-NULL,
-        // so add it to the list.
-        add_it++;
-      }
-    }
-    else    // We have status data stored already
-    {
-      // Check for an identical string
-      CommentRow *ptr2;
-      int ii = 0;
-
-      ptr = p_station->status_data;
-      ptr2 = ptr;
-      while (ptr != NULL)
-      {
-
-        // Note that both text_ptr and comment_string can be
-        // empty strings.
-
-        if (strcasecmp(ptr->text_ptr, status_string) == 0)
-        {
-          // Found a matching string
-          //fprintf(stderr,"Found match:
-          //%s:%s\n",p_station->call_sign,status_string);
-
-          // Instead of updating the timestamp, we'll delete the record from
-          // the list and add it to the top in the code below.  Make sure to
-          // tweak the "ii" pointer so that we don't end up shortening the
-          // list unnecessarily.
-          if (ptr == p_station->status_data)
-          {
-
-            // Only update the timestamp: We're at the
-            // beginning of the list already.
-            ptr->sec_heard = sec_now();
-
-            return; // No need to add a new record
-          }
-          else    // Delete the record
-          {
-            CommentRow *ptr3;
-
-            // Keep a pointer to the record
-            ptr3 = ptr;
-
-            // Close the chain, skipping this record
-            ptr2->next = ptr3->next;
-
-            // Skip "ptr" over the record we wish to
-            // delete
-            ptr = ptr3->next;
-
-            // Free the record
-            free(ptr3->text_ptr);
-            free(ptr3);
-
-            // Muck with the counter 'cuz we just
-            // deleted one record
-            ii--;
-          }
-        }
-        ptr2 = ptr; // Back one record
-        if (ptr != NULL)
-        {
-          ptr = ptr->next;
-        }
-        ii++;
-      }
-
-
-      // No matching string found, or new timestamp found for
-      // old record.  Add it to the top of the list.
-      add_it++;
-      //fprintf(stderr,"No match:
-      //%s:%s\n",p_station->call_sign,status_string);
-
-      // We counted the records.  If we have more than
-      // MAX_STATUS_LINES records we'll delete/free the last
-      // one to make room for the next.  This keeps us from
-      // storing unique status records ad infinitum for active
-      // stations, limiting the total space used.
-      //
-      if (ii >= MAX_STATUS_LINES)
-      {
-        // We know we didn't get a match, and that our list
-        // is full (as full as we want it to be).  Traverse
-        // the list again, looking for ptr2->next->next ==
-        // NULL.  If found, free last record and set the
-        // ptr2->next pointer to NULL.
-        ptr2 = p_station->status_data;
-        while (ptr2->next->next != NULL)
-        {
-          ptr2 = ptr2->next;
-        }
-        // At this point, we have a pointer to the last
-        // record in ptr2->next.  Free it and the text
-        // string in it.
-        free(ptr2->next->text_ptr);
-        free(ptr2->next);
-        ptr2->next = NULL;
-      }
-    }
-
-    if (add_it)     // We add to the beginning so we don't have
-    {
-      // to traverse the linked list.  This also
-      // puts new records at the beginning of the
-      // list to keep them in sorted order.
-
-      ptr = p_station->status_data;  // Save old pointer to records
-      p_station->status_data = (CommentRow *)malloc(sizeof(CommentRow));
-      CHECKMALLOC(p_station->status_data);
-
-      p_station->status_data->next = ptr;    // Link in old records or NULL
-
-      // Malloc the string space we'll need, attach it to our
-      // new record
-      p_station->status_data->text_ptr = (char *)malloc(sizeof(char) * (len+1));
-      CHECKMALLOC(p_station->status_data->text_ptr);
-
-      // Fill in the string
-      xastir_snprintf(p_station->status_data->text_ptr,
-                      len+1,
-                      "%s",
-                      status_string);
-
-      // Fill in the timestamp
-      p_station->status_data->sec_heard = sec_now();
-
-      //fprintf(stderr,"Station:%s\tStatus:%s\n\n",p_station->call_sign,p_station->status_data->text_ptr);
-    }
-  }
+  xastir_legacy_stations.now = sec_now();
+  xastir_add_status(&xastir_legacy_stations, p_station, status_string);
 }
 
 
@@ -8668,175 +7028,8 @@ void add_status(DataRow *p_station, char *status_string)
 //
 void add_comment(DataRow *p_station, char *comment_string)
 {
-  CommentRow *ptr;
-  int add_it = 0;
-  int len;
-
-
-  len = strlen(comment_string);
-
-  // Eliminate line-end chars
-  if (len > 1)
-  {
-    if ( (comment_string[len-1] == '\n')
-         || (comment_string[len-1] == '\r') )
-    {
-      comment_string[len-1] = '\0';
-    }
-  }
-
-  // Shorten it
-  //fprintf(stderr,"1Comment: (%s)\n",comment_string);
-  (void)remove_trailing_spaces(comment_string);
-  //fprintf(stderr,"2Comment: (%s)\n",comment_string);
-
-  ///////TVR DEBUGGING RESULTS 28 March 2007:
-  //NO! DON'T DO THIS --- it breaks multipoint objects!
-  //    (void)remove_leading_spaces(comment_string);
-  ///////////////////////////////////////////
-
-  //fprintf(stderr,"3Comment: (%s)\n",comment_string);
-
-  len = strlen(comment_string);
-
-  // Check for valid pointer
-  if (p_station != NULL)
-  {
-
-    // Check whether we have any data stored for this station
-    if (p_station->comment_data == NULL)
-    {
-      if (len > 0)
-      {
-        // No comments stored yet and new comment is
-        // non-NULL, so add it to the list.
-        add_it++;
-      }
-    }
-    else    // We have comment data stored already
-    {
-      // Check for an identical string
-      CommentRow *ptr2;
-      int ii = 0;
-
-      ptr = p_station->comment_data;
-      ptr2 = ptr;
-      while (ptr != NULL)
-      {
-
-        // Note that both text_ptr and comment_string can be
-        // empty strings.
-
-        if (strcasecmp(ptr->text_ptr, comment_string) == 0)
-        {
-          // Found a matching string
-          //fprintf(stderr,"Found match: %s:%s\n",p_station->call_sign,comment_string);
-
-          // Instead of updating the timestamp, we'll delete the record from
-          // the list and add it to the top in the code below.  Make sure to
-          // tweak the "ii" pointer so that we don't end up shortening the
-          // list unnecessarily.
-          if (ptr == p_station->comment_data)
-          {
-            // Only update the timestamp:  We're at the
-            // beginning of the list already.
-            ptr->sec_heard = sec_now();
-
-            return; // No need to add a new record
-          }
-          else    // Delete the record
-          {
-            CommentRow *ptr3;
-
-            // Keep a pointer to the record
-            ptr3 = ptr;
-
-            // Close the chain, skipping this record
-            ptr2->next = ptr3->next;
-
-            // Skip "ptr" over the record we with to
-            // delete
-            ptr = ptr3->next;
-
-            // Free the record
-            free(ptr3->text_ptr);
-            free(ptr3);
-
-            // Muck with the counter 'cuz we just
-            // deleted one record
-            ii--;
-          }
-        }
-        ptr2 = ptr; // Keep this pointer one record back as
-        // we progress.
-
-        if (ptr != NULL)
-        {
-          ptr = ptr->next;
-        }
-
-        ii++;
-      }
-      // No matching string found, or new timestamp found for
-      // old record.  Add it to the top of the list.
-      add_it++;
-      //fprintf(stderr,"No match: %s:%s\n",p_station->call_sign,comment_string);
-
-      // We counted the records.  If we have more than
-      // MAX_COMMENT_LINES records we'll delete/free the last
-      // one to make room for the next.  This keeps us from
-      // storing unique comment records ad infinitum for
-      // active stations, limiting the total space used.
-      //
-      if (ii >= MAX_COMMENT_LINES)
-      {
-
-        // We know we didn't get a match, and that our list
-        // is full (as we want it to be).  Traverse the list
-        // again, looking for ptr2->next->next == NULL.  If
-        // found, free that last record and set the
-        // ptr2->next pointer to NULL.
-        ptr2 = p_station->comment_data;
-        while (ptr2->next->next != NULL)
-        {
-          ptr2 = ptr2->next;
-        }
-        // At this point, we have a pointer to the last
-        // record in ptr2->next.  Free it and the text
-        // string in it.
-        free(ptr2->next->text_ptr);
-        free(ptr2->next);
-        ptr2->next = NULL;
-      }
-    }
-
-    if (add_it)     // We add to the beginning so we don't have
-    {
-      // to traverse the linked list.  This also
-      // puts new records at the beginning of the
-      // list to keep them in sorted order.
-
-      ptr = p_station->comment_data;  // Save old pointer to records
-      p_station->comment_data = (CommentRow *)malloc(sizeof(CommentRow));
-      CHECKMALLOC(p_station->comment_data);
-
-      p_station->comment_data->next = ptr;    // Link in old records or NULL
-
-      // Malloc the string space we'll need, attach it to our
-      // new record
-      p_station->comment_data->text_ptr = (char *)malloc(sizeof(char) * (len+1));
-      CHECKMALLOC(p_station->comment_data->text_ptr);
-
-      // Fill in the string
-      xastir_snprintf(p_station->comment_data->text_ptr,
-                      len+1,
-                      "%s",
-                      comment_string);
-
-      // Fill in the timestamp
-      p_station->comment_data->sec_heard = sec_now();
-    }
-  }
+  xastir_legacy_stations.now = sec_now();
+  xastir_add_comment(&xastir_legacy_stations, p_station, comment_string);
 }
 
 
@@ -11626,467 +9819,8 @@ void display_packet_data(void)
 /*
  *  Decode Mic-E encoded data
  */
-int decode_Mic_E(char *call_sign,char *path,char *info,char from,int port,int third_party)
+static void present_mice_emergency(char *call_sign)
 {
-  int  ii;
-  int  offset;
-  unsigned char s_b1;
-  unsigned char s_b2;
-  unsigned char s_b3;
-  unsigned char s_b4;
-  unsigned char s_b5;
-  unsigned char s_b6;
-  // unsigned char s_b7;
-  int  north,west,long_offset;
-  int  d,m,h;
-  char temp[MAX_LINE_SIZE+1];     // Note: Must be big in case we get long concatenated packets
-  char new_info[MAX_LINE_SIZE+1]; // Note: Must be big in case we get long concatenated packets
-  int  course;
-  int  speed;
-  int  msg1,msg2,msg3,msg;
-  int  info_size;
-  long alt;
-  int  msgtyp;
-  char rig_type[10];
-  int ok;
-
-  // MIC-E Data Format   [APRS Reference, chapter 10]
-
-  // todo:  error check
-  //        drop wrong positions from receive errors...
-  //        drop 0N/0E position (p.25)
-
-  /* First 7 bytes of info[] contains the APRS data type ID,    */
-  /* longitude, speed, course.                    */
-  /* The 6-byte destination field of path[] contains latitude,    */
-  /* N/S bit, E/W bit, longitude offset, message code.        */
-  /*
-
-    MIC-E Destination Field Format:
-    -------------------------------
-    Ar1DDDD0 Br1DDDD0 Cr1MMMM0 Nr1MMMM0 Lr1HHHH0 Wr1HHHH0 CrrSSID0
-    D = Latitude Degrees.
-    M = Latitude Minutes.
-    H = Latitude Hundredths of Minutes.
-    ABC = Message bits, complemented.
-    N = N/S latitude bit (N=1).
-    W = E/W longitude bit (W=1).
-    L = 100's of longitude degrees (L=1 means add 100 degrees to longitude
-    in the Info field).
-    C = Command/Response flag (see AX.25 specification).
-    r = reserved for future use (currently 0).
-
-  */
-  /****************************************************************************
-   * I still don't handle:                                                     *
-   *    Custom message bits                                                    *
-   *    SSID special routing                                                   *
-   *    Beta versions of the MIC-E (which use a slightly different format).    *
-   *                                                                           *
-   * DK7IN : lat/long with custom msg works, altitude/course/speed works       *
-   *****************************************************************************/
-
-  if (debug_level & 1)
-  {
-    fprintf(stderr,"decode_Mic_E:  FOUND MIC-E\n");
-  }
-
-  // Note that the first MIC-E character was not passed to us, so we're
-  // starting just past it.
-  // Check for valid symbol table character.  Should be '/' or '\'
-  // or 0-9, A-Z.
-  //
-  if (        info[7] == '/'                          // Primary table
-              ||  info[7] == '\\'                         // Alternate table
-              || (info[7] >= '0' && info[7] <= '9')       // Overlay char
-              || (info[7] >= 'A' && info[7] <= 'Z') )     // Overlay char
-  {
-
-    // We're good, keep going
-
-  }
-  else   // Symbol table or overlay char incorrect
-  {
-
-    if (info[6] == '/' || info[6] == '\\')      // Found it back one char in string
-    {
-      // Don't print out the full info string here because it
-      // can contain unprintable characters.  In fact, we
-      // should check the chars we do print out to make sure
-      // they're printable, else print a space char.
-      if (debug_level & 1)
-      {
-        fprintf(stderr,"decode_Mic_E: Symbol table (%c), symbol (%c) swapped or corrupted packet?  Call=%s, Path=%s\n",
-                ((info[7] > 0x1f) && (info[7] < 0x7f)) ? info[7] : ' ',
-                ((info[6] > 0x1f) && (info[6] < 0x7f)) ? info[6] : ' ',
-                call_sign,
-                path);
-        fprintf(stderr,"Returned from data_add, invalid symbol table character: %c\n",info[7]);
-      }
-    }
-
-    return(1);  // No good, not MIC-E format or corrupted packet.  Return 1
-    // so that it won't get added to the database at all.
-  }
-
-  // Check for valid symbol.  Should be between '!' and '~' only.
-  if (info[6] < '!' || info[6] > '~')
-  {
-    if (debug_level & 1)
-    {
-      fprintf(stderr,"Returned from data_add, invalid symbol\n");
-    }
-
-    return(1);  // No good, not MIC-E format or corrupted packet.  Return 1
-    // so that it won't get added to the database at all.
-  }
-
-  // Check for minimum MIC-E size.
-  if (strlen(info) < 8)
-  {
-    if (debug_level & 1)
-    {
-      fprintf(stderr,"Returned from data_add, packet too short\n");
-    }
-
-    return(1);  // No good, not MIC-E format or corrupted packet.  Return 1
-    // so that it won't get added to the database at all.
-  }
-
-  // Check for 8-bit characters in the first eight slots.  Not
-  // allowed per Mic-E chapter of the spec.
-  for (ii = 0; ii < 8; ii++)
-  {
-    if ((unsigned char)info[ii] > 0x7f)
-    {
-      // 8-bit data was found in the lat/long/course/speed
-      // portion.  Bad packet.  Drop it.
-      //fprintf(stderr, "%s: 8-bits found in Mic-E packet initial portion. Dropping it.\n", call_sign);
-      return(1);
-    }
-  }
-
-  // Check whether we have more data.  If flag character is 0x1d
-  // (8-bit telemetry flag) then don't do the 8-bit check below.
-  if (strlen(info) > 8)
-  {
-
-    // Check for the 8-bit telemetry flag
-    if ((unsigned char)info[8] == 0x1d)
-    {
-      // 8-bit telemetry found, skip the check loop below
-    }
-    else    // 8-bit telemetry flag was not found.  Check that
-    {
-      // we only have 7-bit characters through the rest of
-      // the packet.
-
-      for (ii = 8; ii < (int)strlen(info); ii++)
-      {
-
-        if ((unsigned char)info[ii] > 0x7f)
-        {
-          // 8-bit data was found.  Bad packet.  Drop it.
-          //fprintf(stderr, "%s: 8-bits found in Mic-E packet final portion (not 8-bit telemetry). Dropping it.\n", call_sign);
-          return(1);
-        }
-      }
-    }
-  }
-
-  //fprintf(stderr,"Path1:%s\n",path);
-
-  msg1 = (int)( ((unsigned char)path[0] & 0x40) >>4 );
-  msg2 = (int)( ((unsigned char)path[1] & 0x40) >>5 );
-  msg3 = (int)( ((unsigned char)path[2] & 0x40) >>6 );
-  msg = msg1 | msg2 | msg3;   // We now have the complemented message number in one variable
-  msg = msg ^ 0x07;           // And this is now the normal message number
-  msgtyp = 0;                 // DK7IN: Std message, I have to add custom msg decoding
-
-  //fprintf(stderr,"Msg: %d\n",msg);
-
-  /* Snag the latitude from the destination field, Assume TAPR-2 */
-  /* DK7IN: latitude now works with custom message */
-  s_b1 = (unsigned char)( (path[0] & 0x0f) + (char)0x2f );
-  //fprintf(stderr,"path0:%c\ts_b1:%c\n",path[0],s_b1);
-  if (path[0] & 0x10)     // A-J
-  {
-    s_b1 += (unsigned char)1;
-  }
-
-  if (s_b1 > (unsigned char)0x39)        // K,L,Z
-  {
-    s_b1 = (unsigned char)0x20;
-  }
-  //fprintf(stderr,"s_b1:%c\n",s_b1);
-
-  s_b2 = (unsigned char)( (path[1] & 0x0f) + (char)0x2f );
-  //fprintf(stderr,"path1:%c\ts_b2:%c\n",path[1],s_b2);
-  if (path[1] & 0x10)     // A-J
-  {
-    s_b2 += (unsigned char)1;
-  }
-
-  if (s_b2 > (unsigned char)0x39)        // K,L,Z
-  {
-    s_b2 = (unsigned char)0x20;
-  }
-  //fprintf(stderr,"s_b2:%c\n",s_b2);
-
-  s_b3 = (unsigned char)( (path[2] & (char)0x0f) + (char)0x2f );
-  //fprintf(stderr,"path2:%c\ts_b3:%c\n",path[2],s_b3);
-  if (path[2] & 0x10)     // A-J
-  {
-    s_b3 += (unsigned char)1;
-  }
-
-  if (s_b3 > (unsigned char)0x39)        // K,L,Z
-  {
-    s_b3 = (unsigned char)0x20;
-  }
-  //fprintf(stderr,"s_b3:%c\n",s_b3);
-
-  s_b4 = (unsigned char)( (path[3] & 0x0f) + (char)0x30 );
-  //fprintf(stderr,"path3:%c\ts_b4:%c\n",path[3],s_b4);
-  if (s_b4 > (unsigned char)0x39)        // L,Z
-  {
-    s_b4 = (unsigned char)0x20;
-  }
-  //fprintf(stderr,"s_b4:%c\n",s_b4);
-
-  s_b5 = (unsigned char)( (path[4] & 0x0f) + (char)0x30 );
-  //fprintf(stderr,"path4:%c\ts_b5:%c\n",path[4],s_b5);
-  if (s_b5 > (unsigned char)0x39)        // L,Z
-  {
-    s_b5 = (unsigned char)0x20;
-  }
-  //fprintf(stderr,"s_b5:%c\n",s_b5);
-
-  s_b6 = (unsigned char)( (path[5] & 0x0f) + (char)0x30 );
-  //fprintf(stderr,"path5:%c\ts_b6:%c\n",path[5],s_b6);
-  if (s_b6 > (unsigned char)0x39)        // L,Z
-  {
-    s_b6 = (unsigned char)0x20;
-  }
-  //fprintf(stderr,"s_b6:%c\n",s_b6);
-
-  // s_b7 =  (unsigned char)path[6];        // SSID, not used here
-  //fprintf(stderr,"path6:%c\ts_b7:%c\n",path[6],s_b7);
-
-  //fprintf(stderr,"\n");
-
-  // Special tests for 'L' due to position ambiguity deviances in
-  // the APRS spec table.  'L' has the 0x40 bit set, but they
-  // chose in the spec to have that represent position ambiguity
-  // _without_ the North/West/Long Offset bit being set.  Yuk!
-  // Please also note that the tapr.org Mic-E document (not the
-  // APRS spec) has the state of the bit wrong in columns 2 and 3
-  // of their table.  Reverse them.
-  if (path[3] == 'L')
-  {
-    north = 0;
-  }
-  else
-  {
-    north = (int)((path[3] & 0x40) == (char)0x40);  // N/S Lat Indicator
-  }
-
-  if (path[4] == 'L')
-  {
-    long_offset = 0;
-  }
-  else
-  {
-    long_offset = (int)((path[4] & 0x40) == (char)0x40);  // Longitude Offset
-  }
-
-  if (path[5] == 'L')
-  {
-    west = 0;
-  }
-  else
-  {
-    west = (int)((path[5] & 0x40) == (char)0x40);  // W/E Long Indicator
-  }
-
-  //fprintf(stderr,"north:%c->%d\tlat:%c->%d\twest:%c->%d\n",path[3],north,path[4],long_offset,path[5],west);
-
-  /* Put the latitude string into the temp variable */
-  xastir_snprintf(temp, sizeof(temp), "%c%c%c%c.%c%c%c%c",s_b1,s_b2,s_b3,s_b4,s_b5,s_b6,
-                  (north ? 'N': 'S'), info[7]);   // info[7] = symbol table
-
-  /* Compute degrees longitude */
-  xastir_snprintf(new_info,
-                  sizeof(new_info),
-                  "%s",
-                  temp);
-  d = (int) info[0]-28;
-
-  if (long_offset)
-  {
-    d += 100;
-  }
-
-  if ((180<=d)&&(d<=189))  // ??
-  {
-    d -= 80;
-  }
-
-  if ((190<=d)&&(d<=199))  // ??
-  {
-    d -= 190;
-  }
-
-  /* Compute minutes longitude */
-  m = (int) info[1]-28;
-  if (m>=60)
-  {
-    m -= 60;
-  }
-
-  /* Compute hundredths of minutes longitude */
-  h = (int) info[2]-28;
-  /* Add the longitude string into the temp variable */
-  xastir_snprintf(temp, sizeof(temp), "%03d%02d.%02d%c%c",d,m,h,(west ? 'W': 'E'), info[6]);
-  strncat(new_info,
-          temp,
-          sizeof(new_info) - 1 - strlen(new_info));
-
-  /* Compute speed in knots */
-  speed = (int)( ( info[3] - (char)28 ) * (char)10 );
-  speed += ( (int)( (info[4] - (char)28) / (char)10) );
-  if (speed >= 800)
-  {
-    speed -= 800;  // in knots
-  }
-
-  /* Compute course */
-  course = (int)( ( ( (info[4] - (char)28) % 10) * (char)100) + (info[5] - (char)28) );
-  if (course >= 400)
-  {
-    course -= 400;
-  }
-
-  /*  ???
-      fprintf(stderr,"info[4]-28 mod 10 - 4 = %d\n",( ( (int)info[4]) - 28) % 10 - 4);
-      fprintf(stderr,"info[5]-28 = %d\n", ( (int)info[5]) - 28 );
-  */
-  xastir_snprintf(temp, sizeof(temp), "%03d/%03d",course,speed);
-  strncat(new_info,
-          temp,
-          sizeof(new_info) - 1 - strlen(new_info));
-  offset = 8;   // start of rest of info
-
-  /* search for rig type in Mic-E data */
-  rig_type[0] = '\0';
-  if (info[offset] != '\0' && (info[offset] == '>' || info[offset] == ']'))
-  {
-    /* detected type code:     > TH-D7    ] TM-D700 */
-    if (info[offset] == '>')
-      xastir_snprintf(rig_type,
-                      sizeof(rig_type),
-                      " TH-D7");
-    else
-      xastir_snprintf(rig_type,
-                      sizeof(rig_type),
-                      " TM-D700");
-
-    offset++;
-  }
-
-  info_size = (int)strlen(info);
-  /* search for compressed altitude in Mic-E data */  // {
-  if (info_size >= offset+4 && info[offset+3] == '}')    // {
-  {
-    /* detected altitude  ___} */
-    alt = ((((long)info[offset] - (long)33) * (long)91 +(long)info[offset+1] - (long)33) * (long)91
-           + (long)info[offset+2] - (long)33) - 10000;  // altitude in meters
-    alt /= 0.3048;                                // altitude in feet, as in normal APRS
-
-    //32808 is -10000 meters, or 10 km (deepest ocean), which is as low as a MIC-E
-    //packet may go.  Upper limit is mostly a guess.
-    if ( (alt > 500000) || (alt < -32809) )    // Altitude is whacko.  Skip it.
-    {
-      if (debug_level & 1)
-      {
-        fprintf(stderr,"decode_Mic_E:  Altitude is whacko:  %ld feet, skipping altitude...\n", alt);
-      }
-      offset += 4;
-    }
-    else    // Altitude is ok
-    {
-      xastir_snprintf(temp, sizeof(temp), " /A=%06ld",alt);
-      offset += 4;
-      strncat(new_info,
-              temp,
-              sizeof(new_info) - 1 - strlen(new_info));
-    }
-  }
-
-  /* start of comment */
-  if (strlen(rig_type) > 0)
-  {
-    xastir_snprintf(temp, sizeof(temp), "%s",rig_type);
-    strncat(new_info,
-            temp,
-            sizeof(new_info) - 1 - strlen(new_info));
-  }
-
-  strncat(new_info,
-          " Mic-E ",
-          sizeof(new_info) - 1 - strlen(new_info));
-  if (msgtyp == 0)
-  {
-    switch (msg)
-    {
-      case 1:
-        strncat(new_info,
-                "Enroute",
-                sizeof(new_info) - 1 - strlen(new_info));
-        break;
-
-      case 2:
-        strncat(new_info,
-                "In Service",
-                sizeof(new_info) - 1 - strlen(new_info));
-        break;
-
-      case 3:
-        strncat(new_info,
-                "Returning",
-                sizeof(new_info) - 1 - strlen(new_info));
-        break;
-
-      case 4:
-        strncat(new_info,
-                "Committed",
-                sizeof(new_info) - 1 - strlen(new_info));
-        break;
-
-      case 5:
-        strncat(new_info,
-                "Special",
-                sizeof(new_info) - 1 - strlen(new_info));
-        break;
-
-      case 6:
-        strncat(new_info,
-                "Priority",
-                sizeof(new_info) - 1 - strlen(new_info));
-        break;
-
-      case 7:
-        strncat(new_info,
-                "Emergency",
-                sizeof(new_info) - 1 - strlen(new_info));
-
-        // Do a popup to alert the operator to this
-        // condition.  Make sure we haven't popped up an
-        // emergency message for this station within the
-        // last 30 minutes.  If we pop these up constantly
-        // it gets quite annoying.
-        // EMERGENCY
-
         if (emergency_distance_check)
         {
           double distance;
@@ -12173,65 +9907,16 @@ int decode_Mic_E(char *call_sign,char *path,char *info,char from,int port,int th
             }
           }
         }
-        break;
+}
 
-      default:
-        strncat(new_info,
-                "Off Duty",
-                sizeof(new_info) - 1 - strlen(new_info));
-    }
-  }
-  else
-  {
-    xastir_snprintf(temp, sizeof(temp), "Custom%d",msg);
-    strncat(new_info,
-            temp,
-            sizeof(new_info) - 1 - strlen(new_info));
-  }
-
-  if (info[offset] != '\0')
-  {
-    /* Append the rest of the message to the expanded MIC-E message */
-    for (ii=offset; ii<info_size; ii++)
-    {
-      temp[ii-offset] = info[ii];
-    }
-
-    temp[info_size-offset] = '\0';
-    strncat(new_info,
-            " ",
-            sizeof(new_info) - 1 - strlen(new_info));
-    strncat(new_info,
-            temp,
-            sizeof(new_info) - 1 - strlen(new_info));
-  }
-
-  if (debug_level & 1)
-  {
-    fprintf(stderr,"decode_Mic_E:  Done decoding MIC-E\n");
-    fprintf(stderr,"APRS_MICE, %s, %s, %s, %d, %d, NULL, %d\n",call_sign,path,new_info,from,port,third_party);
-    // type:        APRS_MICE,
-    // callsign:    N0EST-9,
-    // path:        TTPQ9P,W0MXW-1,WIDE,N0QK-1*,
-    // new_info:    4401.90N/09228.79W>278/007 /A=-05685 TM-D700 Mic-E Off Duty N0EST  ,
-    // from:        70,
-    // port:        -1,
-    //              NULL,
-    // third_party: 0
-  }
-
-  // We don't transmit Mic-E protocol from Xastir, so we know it's
-  // not our station's packets or our object/item packets,
-  // therefore the last two parameters here are both zero.
-  //
-  ok = data_add(APRS_MICE,call_sign,path,new_info,from,port,NULL,third_party, 0, 0);
-
-  if (debug_level & 1)
-  {
-    fprintf(stderr,"Returned from data_add, end of function\n");
-  }
-
-  return(ok);
+int decode_Mic_E(char *call_sign, char *path, char *info, char from, int port, int third_party)
+{
+  char expanded[513];
+  int emergency;
+  if (!xastir_expand_mice(path, info, expanded, sizeof(expanded), &emergency)) return 1;
+  int ok = data_add(APRS_MICE, call_sign, path, expanded, from, port, NULL, third_party, 0, 0);
+  if (emergency) present_mice_emergency(call_sign);
+  return ok;
 }   // End of decode_Mic_E()
 
 
@@ -13062,7 +10747,6 @@ int tactical_data_add(char *call, char *message, char UNUSED(from) )
 //
 int decode_message(char *call,char *path,char *message,char from,int port,int third_party)
 {
-  char *temp_ptr;
   char ipacket_message[300];
   char message_plus_acks[MAX_MESSAGE_LENGTH + 10];
   char from_call[MAX_CALLSIGN+1];
@@ -13071,7 +10755,7 @@ int decode_message(char *call,char *path,char *message,char from,int port,int th
   char addr[9+1];
   char addr9[9+1];
   char msg_id[5+1];
-  char orig_msg_id[5+1];
+  char orig_msg_id[13];
   char ack_string[6];
   int done;
   int reply_ack = 0;
@@ -13120,152 +10804,24 @@ int decode_message(char *call,char *path,char *message,char from,int port,int th
     from_my_call++;
   }
 
-  ack_string[0] = '\0';   // Clear out the Reply/Ack result string
-
-  len = (int)strlen(message);
-  ok = (int)(len > 9 && message[9] == ':');
-
-  if (ok)
-  {
-
-    substr(addr9,message,9); // extract addressee
-    xastir_snprintf(addr,
-                    sizeof(addr),
-                    "%s",
-                    addr9);
-    (void)remove_trailing_spaces(addr);
-
-    if (is_my_call(addr,1))   // Check includes SSID
-    {
-      to_my_call++;
-    }
-
-    if (is_my_call(addr,0))   // Check ignores SSID.  We use
-    {
-      // this to catch messages to some
-      // of our other SSID's
-      to_my_base_call++;
-    }
-
-    message = message + 10; // pointer to message text
-
-    // Save the message text and the acks/reply-acks before we
-    // extract the acks below.
-    xastir_snprintf(message_plus_acks,
-                    sizeof(message_plus_acks),
-                    "%s",
-                    message);
-
-    temp_ptr = strrchr(message,'{'); // look for message ID after
-    //*last* { in message.
-    msg_id[0] = '\0';
-    if (temp_ptr != NULL)
-    {
-      substr(msg_id,temp_ptr+1,5); // extract message ID, could be non-digit
-      temp_ptr[0] = '\0';          // adjust message end (chops off message ID)
-    }
-
-    // Save the original msg_id away.
-    xastir_snprintf(orig_msg_id,
-                    sizeof(orig_msg_id),
-                    "%s",
-                    msg_id);
-
-    // Check for Reply/Ack protocol in msg_id, which looks like
-    // this:  "{XX}BB", where XX is the sequence number for the
-    // message, and BB is the ack for the previous message from
-    // my station.  I've also seen this from APRS+: "{XX}B", so
-    // perhaps this is also possible "{X}B" or "{X}BB}".  We can
-    // also get auto-reply responses from APRS+ that just have
-    // "}X" or "}XX" at the end.  We decode those as well.
-    //
-
-    temp_ptr = strstr(msg_id,"}"); // look for Reply Ack in msg_id
-
-    if (temp_ptr != NULL)   // Found Reply/Ack protocol!
-    {
-
-      reply_ack++;
-
-      //            if ( (debug_level & 1) && (is_my_call(addr,1)) ) { // Check SSID also
-      if ( (debug_level & 1) && to_my_call)   // Check SSID also
-      {
-        fprintf(stderr,"1Found Reply/Ack:%s\n",message);
-        fprintf(stderr,"Orig_msg_id:%s\t",msg_id);
-      }
-
-      // Put this code into the UI message area as well (if applicable).
-
-      // Separate out the extra ack so that we can deal with
-      // it properly.
-      xastir_snprintf(ack_string,
-                      sizeof(ack_string),
-                      "%s",
-                      temp_ptr+1); // After the '}' character!
-
-      // Terminate it here so that rest of decode works
-      // properly.  We can get duplicate messages
-      // otherwise.
-      //
-      // Note that we modify msg_id here.  Use orig_msg_id if we need the
-      // unmodified version (full REPLY-ACK version) later.
-      //
-      temp_ptr[0] = '\0'; // adjust msg_id end
-
-      //            if ( (debug_level & 1) && (is_my_call(addr,1)) ) { // Check SSID also
-      if ( (debug_level & 1) && to_my_call)   // Check SSID also
-      {
-        fprintf(stderr,"New_msg_id:%s\tReply_ack:%s\n\n",
-                msg_id,ack_string);
-      }
-
-    }
-    else    // Look for Reply Ack in message without sequence
-    {
-      // number
-      temp_ptr = strstr(message,"}");
-
-      if (temp_ptr != NULL)
-      {
-        int yy = 0;
-
-
-        reply_ack++;
-
-        //                if ( (debug_level & 1) && (is_my_call(addr,1)) ) { // Check SSID also
-        if ( (debug_level & 1) && to_my_call)   // Check SSID also
-        {
-          fprintf(stderr,"2Found Reply/Ack:%s\n",message);
-        }
-
-        // Put this code into the UI message area as well (if applicable).
-        xastir_snprintf(ack_string,
-                        sizeof(ack_string),
-                        "%s",
-                        temp_ptr+1);    // After the '}' character!
-
-        ack_string[yy] = '\0';  // Terminate the string
-
-        // Terminate it here so that rest of decode works
-        // properly.  We can get duplicate messages
-        // otherwise.
-        temp_ptr[0] = '\0'; // adjust message end
-
-        //                if ( (debug_level & 1) && (is_my_call(addr,1)) ) { // Check SSID also
-        if ( (debug_level & 1) && to_my_call)   // Check SSID also
-        {
-          fprintf(stderr,"Reply_ack:%s\n\n",ack_string);
-        }
-      }
-    }
-
-    done = 0;
-  }
-  else
-  {
-    done = 1;                               // fall through...
-  }
-
+  char information[128];
+  XastirDecodedMessage decoded;
+  if (strlen(message) + 2 > sizeof(information)) return 0;
+  xastir_snprintf(information, sizeof(information), ":%s", message);
+  if (!xastir_decode_message(information, &decoded)) return 0;
+  memcpy(addr9, message, 9); addr9[9] = '\0';
+  xastir_snprintf(addr, sizeof(addr), "%s", decoded.recipient);
+  to_my_call = is_my_call(addr, 1);
+  to_my_base_call = is_my_call(addr, 0);
+  xastir_snprintf(message_plus_acks, sizeof(message_plus_acks), "%s", message + 10);
+  xastir_snprintf(msg_id, sizeof(msg_id), "%s", decoded.id);
+  xastir_snprintf(orig_msg_id, sizeof(orig_msg_id), "%s", decoded.original_id);
+  xastir_snprintf(ack_string, sizeof(ack_string), "%s", decoded.reply_id);
+  reply_ack = decoded.reply_capable;
+  ok = 1;
+  message += 10;
+  if (!decoded.kind) xastir_snprintf(message, strlen(message) + 1, "%s", decoded.text);
+  done = 0;
   if (debug_level & 1)
   {
     fprintf(stderr,"1\n");

@@ -3,7 +3,8 @@
 #include <QObject>
 #include <QSet>
 #include <QTimer>
-#include <QHash>
+#include <memory>
+struct XastirMessages;
 #include <functional>
 
 struct AprsMessage {
@@ -36,8 +37,8 @@ public:
   const QString &autoReplyText() const { return autoText_; }
   void setAutoReply(bool enabled);
   bool autoReply() const { return autoReply_; }
-  void setSatelliteMode(bool enabled) { satellite_ = enabled; }
-  bool satelliteMode() const { return satellite_; }
+  void setSatelliteMode(bool enabled);
+  bool satelliteMode() const;
   bool addGroup(QString group);
   const QSet<QString> &groups() const { return groups_; }
   static bool validPath(const QString &path, QString *error = nullptr);
@@ -48,22 +49,16 @@ signals:
   void autoReplyChanged(bool enabled);
   void operationError(const QString &error);
 private:
-  void attempt(quint64 key);
-  void acknowledge(const QString &peer, const QString &id, bool rejected);
-  QByteArray messageInformation(const QString &recipient, const QString &body) const;
-  QString allocateId();
-  void trimHistory();
+  void sync();
+  static int transmit(void *, const char *, int, const char *, char *, size_t);
+  static void incoming(void *, const char *, int);
   QString callsign_, autoText_;
   Transport transport_;
   Clock clock_;
   QTimer timer_;
-  QList<AprsMessage> messages_;
+  std::unique_ptr<XastirMessages, void (*)(XastirMessages *)> core_;
+  QList<AprsMessage> messages_; // UI projection; delivery state lives in C.
   QSet<QString> groups_{"ALL", "CQ", "QST"};
-  QHash<QString, qint64> seen_, ackTimes_, autoTimes_;
-  QHash<QString, QString> owedAck_;
-  QSet<QString> replyAckPeers_;
-  QHash<QString, QPair<int, QString>> routes_;
-  quint64 nextKey_ = 1;
-  unsigned nextId_ = 0;
-  bool autoReply_ = false, satellite_ = false;
+  quint64 revision_ = 0;
+  bool autoReply_ = false;
 };

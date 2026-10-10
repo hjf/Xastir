@@ -4,8 +4,8 @@ A Qt 6 Widgets frontend with a shared legacy C decoding core, built with CMake. 
 a main window, the legacy menu structure, an interactive OpenStreetMap raster map, and APRS
 station and object icons with name labels. Station state can be loaded from JSON
 snapshots or received live through an AGWPE client. The Message menu supports
-APRS conversations and explicitly enabled transmission. The legacy
-station database and serial interfaces are not linked into this executable.
+APRS conversations and explicitly enabled transmission. The legacy C station database and message backend are shared with this frontend.
+Serial interfaces are not linked into this executable.
 
 ## Linux dependencies
 
@@ -30,7 +30,9 @@ cmake --build build/qt
 ./build/qt/qt/xastir-qt
 ```
 
-The existing Autotools build remains available for the Motif application.
+The Autotools source lists also include the extracted core. The old Motif
+message dialogs and queue controls need adaptation to the new delivery service.
+The legacy build requires a clean rebuild because the record layouts changed.
 Use a normal desktop terminal for an interactive launch. The Qt viewer starts
 at your configured station position, zoom 12, when a legacy configuration is
 available; otherwise it starts at latitude 20°, longitude 0°, zoom 3. To start over Buenos Aires, for example:
@@ -256,7 +258,7 @@ cmake --build build/qt-release
 `MapWidget` owns viewport interaction and painting; `TileSource` owns HTTP and
 tile caches; `map_projection` provides the shared coordinate conversions.
 The renderer uses Qt logical pixels, letting Qt handle display scaling.
-`StationModel` stores decoded station state; `AprsSymbols` loads the original
+`StationModel` projects the shared C station database into Qt; `AprsSymbols` loads the original
 artwork. `MapWidget::coordinateToScreen()` projects stations into the viewport.
 `AgwpeClient` feeds decoded updates into the station model without changing tile
 loading or rendering. The legacy map renderer and Xt event loop are not linked into this
@@ -264,17 +266,55 @@ executable.
 
 ## Shared legacy C core
 
-`xastir_core` builds `src/aprs_position.c` without Qt, Motif, Xlib, or global
-application state. Its uncompressed/compressed position, DAO, coordinate and
-symbol overlay functions were moved from `db.c` and `util.c`; those files now
-use adapters to the same implementation. Local station identity policy stays
-in the database adapter rather than the decoder. Qt converts the result's
-centisecond offsets to geographic degrees for stations, objects and items.
+`xastir_core` builds without Qt, Motif, Xlib, or application globals. Each
+frontend owns independent station/message instances, and provides time and
+transport callbacks explicitly. All mutations run on the owning thread.
 
-This is the first extraction slice. Packet dispatch, Mic-E, the Qt station
-model, AGWPE transport and message engine still use their current C++
-implementations. The complete legacy database/message engine is not yet linked.
-The C API takes writable NUL-terminated position data; it advances the comment
-pointer and removes DAO metadata as the original implementation did.
-`aprs_position_core` tests these routines directly without a GUI; AGWPE tests
-also verify DAO precision through the Qt packet adapter.
+The implementation reuses these original sources:
+
+- `aprs_position.c`: coordinate, ambiguity, DAO, compressed/uncompressed,
+  symbol overlay, speed/course and altitude routines moved from `db.c`/`util.c`.
+- `aprs_mice.c`: the original Mic-E expansion algorithm from `db.c`, including
+  rig identification, status, speed/course and altitude. Emergency is returned
+  as data; presentation stays in the frontend adapter.
+- `station_db.c`: original `DataRow` storage, name/time ordered lists, shortcut
+  index, weather/trail allocation and ownership, comment/status history and
+  deletion routines. Geographic imports retain precise doubles alongside the
+  legacy centisecond coordinates. Moving stations accumulate bounded trails.
+  Configured local positions take priority over received echoes.
+- `message_store.c`: original history allocation/recycling and binary lookup,
+  refactored to explicit context and correctly sized index allocation. Lookup
+  keys separate sender/recipient/sequence and prefer the newest reused ID.
+- `message_core.c`: the legacy transmit record and two-character counter, and
+  a refactoring of the legacy ordering/retry/ACK policy into a service without
+  dialog calls. The MVP's transport acceptance checks, duplicate suppression,
+  groups, queries, auto reply and satellite mode live here. Failed transport
+  attempts consume no retries. FIFO ordering handles identifier rollover.
+
+`StationModel` and `MessageService` are Qt adapters. Their maps/lists are UI
+projections, not independent database or delivery engines. JSON snapshot
+parsing, AGWPE networking, TNC2 packet dispatch and map rendering remain in Qt.
+This migration does not implement additional legacy features such as NMEA,
+weather packet decoding, NWS alert processing, igating or object transmission.
+The C database can already own their ancillary records for later integration.
+Motif message dialogs still need adaptation to the new service; their queue
+controls/history are not guaranteed to work after this refactor.
+
+The position API takes writable NUL-terminated data, advances the comment
+pointer, and removes DAO metadata. The Mic-E expansion API reads immutable
+input and returns a bounded standard position report. Delivery callbacks must
+not mutate the same message engine while it is executing.
+
+To build and test just the C core (no Qt or C++ compiler required):
+
+```sh
+cmake -S . -B build/core -G Ninja -DXASTIR_BUILD_QT=OFF -DBUILD_TESTING=ON
+cmake --build build/core
+ctest --test-dir build/core --output-on-failure
+```
+
+C tests cover truncation/malformed coordinates, Mic-E metadata and ambiguity,
+independent database instances, list/index invariants, ancillary cleanup,
+comment retention, movement trails, expiry, peer/history bounds, ordering,
+ACK/Reply-ACK, retries, groups, and identifier rollover. Qt tests exercise
+these same backends through the existing menus and local AGWPE fixtures.

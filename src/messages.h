@@ -32,30 +32,7 @@
  *
  */
 
-/* define MESSAGE STATUS */
-#define MESSAGE_ACTIVE  'A'
-#define MESSAGE_CLEAR 'C'
-
-#define MAX_OUTGOING_MESSAGES 100
-#define MAX_MESSAGE_OUTPUT_LENGTH 67
-#define MAX_MESSAGE_ORDER 10
-
-// Max tries to get a message through
-#define MAX_TRIES 18
-
-typedef struct
-{
-  char active;
-  char to_call_sign[MAX_CALLSIGN+1];
-  char from_call_sign[MAX_CALLSIGN+1];
-  char message_line[MAX_MESSAGE_OUTPUT_LENGTH+1];
-  char path[200];
-  char seq[MAX_MESSAGE_ORDER+1];
-  time_t active_time;
-  time_t next_time;
-  int tries;
-  int wait_on_first_ack;
-} Message_transmit;
+#include "message_core.h"
 
 #define MAX_MESSAGE_WINDOWS 25
 

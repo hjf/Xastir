@@ -25,9 +25,7 @@
 /* Defines used throughout Xastir, mostly, but not exclusively, in maps. */
 
 #define MAX_FILENAME 2000
-#define MAX_CALLSIGN 9       // Objects are up to 9 chars
-#define MAX_LONG             12
-#define MAX_LAT              11
+#include "core_types.h"
 
 /* Malloc sanity checking macros used in many files */
 #define CHECKMALLOC(m)  if (!m) { fprintf(stderr, "***** Malloc Failed *****\n"); exit(0); }
