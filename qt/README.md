@@ -515,3 +515,30 @@ Linux builds use the system SQLite library. For static packaging, CMake accepts
 The Windows packaging script selects Qt's bundled SQLite source so SQLite does
 not introduce an extra DLL. This history change was built and tested on Linux;
 no Windows build was performed.
+
+## Map menu
+
+Map Chooser selects a 256-pixel PNG XYZ tile source with `{z}`, `{x}`, and `{y}`
+placeholders and a required attribution. HTTP(S) and local `file:` URLs work.
+The selection persists; an explicit `--tile-url` overrides it for that run.
+Map Display Bookmarks stores up to 200 named center/zoom views and supports
+restoring and deleting them. Center & Zoom and Search Location (coordinates)
+accept decimal degrees. Changing location through these tools stops station
+following. The Coordinate Calculator displays decimal degrees, degrees/minutes,
+and degrees/minutes/seconds using the shared original C converters.
+
+Disable All Maps cancels tile requests while retaining station overlays. Grid
+lines use geographic coordinates; Map Border shows XYZ tile boundaries.
+Background, raster intensity, gamma, station text style, and icon outlines apply
+to rendering and persist. Intensity and gamma affect tiles, keeping station
+symbols and text legible. Re-download Maps invalidates the current viewport's
+cached tiles. Flush Entire Map Cache clears this application's tile disk cache
+and decoded images, then reloads the visible tiles.
+
+Legacy CAD polygons, GNIS feature lookup, street-address geocoding, weather-alert
+map layers, DRG configuration, vector map styling, automatic map selection, and
+map-file indexing require additional backends and are explicitly unavailable.
+Raster labels and fills are baked into the selected source. Coordinate UTM/MGRS
+input has not been migrated. The Motif Mouse Pointer Menu and fast-copy drawing
+switch are hidden; Qt provides direct drag, wheel, keyboard, and station-click
+interactions. These changes were validated on Linux with offscreen tests.

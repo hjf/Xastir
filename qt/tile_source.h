@@ -43,6 +43,9 @@ public:
   explicit TileSource(const TileSourceOptions &options, QObject *parent = nullptr);
   ~TileSource() override;
   const QPixmap *tile(const TileId &id);
+  QString urlTemplate() const { return urlTemplate_; }
+  void setUrlTemplate(const QString &url);
+  void reload(bool flushEntireCache = false);
   void setVisibleTiles(const QList<TileId> &tiles);
 
 signals:

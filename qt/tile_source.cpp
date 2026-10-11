@@ -150,3 +150,32 @@ void TileSource::reportStatus()
   else
     emit statusChanged(tr("Map ready"));
 }
+
+void TileSource::reload(bool flushEntireCache)
+{
+  const auto visible = visible_.values();
+  setVisibleTiles({});
+  images_.clear(); retryAfter_.clear(); lastError_.clear();
+  if (network_.cache()) {
+    if (flushEntireCache) network_.cache()->clear();
+    else for (const auto &id : visible) {
+      QString url = urlTemplate_;
+      url.replace("{z}", QString::number(id.zoom));
+      url.replace("{x}", QString::number(id.x));
+      url.replace("{y}", QString::number(id.y));
+      network_.cache()->remove(QUrl(url));
+    }
+  }
+  setVisibleTiles(visible);
+  emit tileAvailable();
+}
+void TileSource::setUrlTemplate(const QString &url)
+{
+  if (urlTemplate_ == url) return;
+  const auto visible = visible_.values();
+  setVisibleTiles({});
+  urlTemplate_ = url;
+  images_.clear(); retryAfter_.clear(); lastError_.clear();
+  setVisibleTiles(visible);
+  emit tileAvailable();
+}

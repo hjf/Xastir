@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "main_window.h"
 #include "map_widget.h"
+#include "map_menu.h"
 #include "station_model.h"
 #include "agwpe_client.h"
 #include "legacy_menus.h"
@@ -43,6 +44,7 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
 
   createLegacyMenus(this);
   auto *navigator = new StationNavigator(this, stations_, mapWidget_);
+  new MapMenu(this, mapWidget_, tiles, navigator);
   stationMenu_ = new StationMenu(this, stations_, mapWidget_, options.config.callsign, localStation_);
   auto *following = new QLabel(this);
   statusBar()->addPermanentWidget(following);

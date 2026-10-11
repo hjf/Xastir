@@ -83,9 +83,17 @@ QPointF MapWidget::viewportOrigin() const
   return center_ - QPointF(width() / 2.0, height() / 2.0);
 }
 
+void MapWidget::setMapsEnabled(bool enabled)
+{
+  mapsEnabled_ = enabled;
+  if (!enabled) { tileTimer_.stop(); tiles_->setVisibleTiles({}); }
+  else refreshTiles();
+  update();
+}
+
 void MapWidget::refreshTiles()
 {
-  if (!isVisible())
+  if (!isVisible() || !mapsEnabled_)
     return;
   const QPointF origin = viewportOrigin();
   const int firstX = int(std::floor(origin.x() / map::TileSize));
@@ -103,28 +111,78 @@ void MapWidget::refreshTiles()
 void MapWidget::paintEvent(QPaintEvent *)
 {
   QPainter painter(this);
-  painter.fillRect(rect(), QColor("#e8edf0"));
+  painter.fillRect(rect(), background_);
+  painter.setOpacity(intensity_);
   const QPointF origin = viewportOrigin();
   const int firstX = int(std::floor(origin.x() / map::TileSize));
   const int firstY = std::max(0, int(std::floor(origin.y() / map::TileSize)));
   const int lastX = int(std::floor((origin.x() + width() - 1) / map::TileSize));
   const int lastY = std::min((1 << zoom_) - 1,
     int(std::floor((origin.y() + height() - 1) / map::TileSize)));
-  for (int y = firstY; y <= lastY; ++y)
+  if (mapsEnabled_) for (int y = firstY; y <= lastY; ++y)
   {
     for (int x = firstX; x <= lastX; ++x)
     {
       const TileId id{zoom_, map::wrapTileX(x, zoom_), y};
       const QRectF target(x * map::TileSize - origin.x(), y * map::TileSize - origin.y(),
                           map::TileSize, map::TileSize);
-      if (const QPixmap *image = tiles_->tile(id))
-        painter.drawPixmap(target, *image, image->rect());
+      if (const QPixmap *image = tiles_->tile(id)) {
+        const QPixmap *rendered = image;
+        if (gamma_ != 1) {
+          rendered = correctedTiles_.object(image->cacheKey());
+          if (!rendered) {
+            QImage corrected = image->toImage().convertToFormat(QImage::Format_ARGB32);
+            int lookup[256];
+            for (int i = 0; i < 256; ++i) lookup[i] = qRound(255 * std::pow(i / 255.0, 1 / gamma_));
+            for (int y = 0; y < corrected.height(); ++y) {
+              auto *line = reinterpret_cast<QRgb *>(corrected.scanLine(y));
+              for (int x = 0; x < corrected.width(); ++x) {
+                const auto rgb = line[x];
+                line[x] = qRgba(lookup[qRed(rgb)], lookup[qGreen(rgb)], lookup[qBlue(rgb)], qAlpha(rgb));
+              }
+            }
+            auto *pixmap = new QPixmap(QPixmap::fromImage(corrected));
+            correctedTiles_.insert(image->cacheKey(), pixmap, int((corrected.sizeInBytes() + 1023) / 1024));
+            rendered = pixmap;
+          }
+        }
+        painter.drawPixmap(target, *rendered, rendered->rect());
+      }
       else
       {
         painter.setPen(QColor("#d5dde2"));
         painter.drawRect(target.adjusted(0, 0, -1, -1));
       }
     }
+  }
+  painter.setOpacity(1);
+  if (grid_) {
+    painter.setPen(QPen(QColor(50, 70, 90, 150), 1, Qt::DashLine));
+    // Choose a geographic spacing with roughly 120 pixels between lines.
+    const double target = 360.0 * 120 / map::worldSize(zoom_);
+    double step = std::pow(10.0, std::floor(std::log10(target)));
+    for (double factor : {1.0, 2.0, 5.0, 10.0})
+      if (step * factor >= target) { step *= factor; break; }
+    const double left = origin.x() / map::worldSize(zoom_) * 360 - 180;
+    const double right = (origin.x() + width()) / map::worldSize(zoom_) * 360 - 180;
+    for (double lon = std::ceil(left / step) * step; lon <= right; lon += step) {
+      const double x = (lon + 180) / 360 * map::worldSize(zoom_) - origin.x();
+      painter.drawLine(QPointF(x, 0), QPointF(x, height()));
+      painter.drawText(QPointF(x + 3, height() - 40), QString::number(lon, 'g', 6) + "°");
+    }
+    const double top = map::fromWorld(origin, zoom_).latitude;
+    const double bottom = map::fromWorld(origin + QPointF(0, height()), zoom_).latitude;
+    for (double lat = std::ceil(bottom / step) * step; lat <= top; lat += step) {
+      const double y = coordinateToScreen({lat, centerCoordinate().longitude}).y();
+      painter.drawLine(QPointF(0, y), QPointF(width(), y));
+      painter.drawText(QPointF(4, y - 3), QString::number(lat, 'g', 6) + "°");
+    }
+  }
+  if (border_) {
+    painter.setPen(QPen(QColor("#657785"), 1));
+    for (int y = firstY; y <= lastY; ++y)
+      for (int x = firstX; x <= lastX; ++x)
+        painter.drawRect(QRectF(x * map::TileSize - origin.x(), y * map::TileSize - origin.y(), map::TileSize, map::TileSize));
   }
   drawStations(painter);
   painter.setPen(QColor("#35434e"));
@@ -355,12 +413,31 @@ void MapWidget::drawStations(QPainter &painter)
       stationHits_.append({label.name, label.bounds, label.point});
       if (QLineF(label.anchor, label.point).length() >= 1)
         painter.fillRect(label.bounds, QColor(255, 255, 255, 225));
-      if (display_.symbol) painter.drawImage(label.anchor - QPointF(label.icon.width()/2.0, label.icon.height()/2.0), label.icon);
+      if (display_.symbol) {
+        const QPointF corner = label.anchor - QPointF(label.icon.width()/2.0, label.icon.height()/2.0);
+        if (iconOutline_) {
+          QImage outline(label.icon.size(), QImage::Format_ARGB32_Premultiplied);
+          outline.fill(Qt::transparent);
+          QPainter ink(&outline); ink.drawImage(0, 0, label.icon);
+          ink.setCompositionMode(QPainter::CompositionMode_SourceIn);
+          ink.fillRect(outline.rect(), iconOutline_ == 1 ? Qt::black : iconOutline_ == 2 ? Qt::gray : Qt::white);
+          ink.end();
+          for (const QPoint &offset : {QPoint(-1,0), QPoint(1,0), QPoint(0,-1), QPoint(0,1)})
+            painter.drawImage(corner + offset, outline);
+        }
+        painter.drawImage(corner, label.icon);
+      }
       QPainterPath path;
       path.addText(label.anchor + QPointF(14, (metrics.ascent() - metrics.descent()) / 2), labelFont, label.text);
-      painter.setPen(QPen(Qt::white, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-      painter.setBrush(QColor("#192d3b")); painter.drawPath(path);
-      painter.setPen(Qt::NoPen); painter.drawPath(path);
+      if (textStyle_ == 2 || textStyle_ == 4) {
+        painter.fillRect(path.boundingRect().adjusted(-2,-2,2,2), textStyle_ == 2 ? Qt::black : Qt::white);
+      }
+      if (textStyle_ == 1 || textStyle_ == 3) {
+        painter.save(); painter.translate(textStyle_ == 1 ? 1 : 2, textStyle_ == 1 ? 1 : 2);
+        painter.setPen(Qt::NoPen); painter.setBrush(Qt::black); painter.drawPath(path); painter.restore();
+      }
+      painter.setPen(textStyle_ == 0 ? QPen(Qt::black, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin) : QPen(Qt::NoPen));
+      painter.setBrush(textStyle_ == 4 ? Qt::black : Qt::white); painter.drawPath(path);
     }
   }
   for (const auto &label : labels) {
@@ -497,4 +574,26 @@ void MapWidget::keyPressEvent(QKeyEvent *event)
   }
   emit manuallyPanned();
   updateView();
+}
+
+QString MapWidget::mapAttribution() const
+{
+  return attribution_->textFormat() == Qt::PlainText ? attribution_->text() : QStringLiteral("© OpenStreetMap contributors");
+}
+void MapWidget::setMapAttribution(const QString &text)
+{
+  if (text == QStringLiteral("© OpenStreetMap contributors")) {
+    attribution_->setTextFormat(Qt::RichText);
+    attribution_->setText(QStringLiteral("© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors"));
+  } else {
+    attribution_->setTextFormat(Qt::PlainText);
+    attribution_->setText(text);
+  }
+  attribution_->adjustSize();
+  attribution_->move(std::max(0, width() - attribution_->width() - 8), std::max(0, height() - attribution_->height() - 8));
+}
+void MapWidget::setMapGamma(double gamma)
+{
+  gamma_ = std::isfinite(gamma) ? std::clamp(gamma, 0.1, 5.0) : 1;
+  correctedTiles_.clear(); update();
 }

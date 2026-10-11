@@ -10,6 +10,15 @@
 #include <QtEndian>
 
 #include <QAction>
+#include <QSettings>
+#include <QInputDialog>
+#include <QTimer>
+#include <QDoubleSpinBox>
+#include <QSpinBox>
+#include <QDialogButtonBox>
+#include <QPushButton>
+#include <QLineEdit>
+#include <QListWidget>
 #include <QLabel>
 #include <QDialog>
 #include <QMenuBar>
@@ -111,8 +120,10 @@ public:
 class MapTest : public QObject
 {
   Q_OBJECT
+  QTemporaryDir settingsDirectory_;
 
 private slots:
+  void init() { QSettings().clear(); }
   void legacyMenuStructureAndPlaceholders()
   {
     TileServer server;
@@ -149,7 +160,7 @@ private slots:
       QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
       QVERIFY(window.isVisible());
     }
-    QCOMPARE(leaves, 183); QCOMPARE(toggles, 79);
+    QCOMPARE(leaves, 183); QCOMPARE(toggles, 111);
     window.close();
   }
 
@@ -255,8 +266,103 @@ private slots:
 
   void initTestCase()
   {
+    QCoreApplication::setOrganizationName("XastirMapTests");
+    QCoreApplication::setApplicationName("MapMenu");
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDirectory_.path());
     // Deterministic local HTTP tests must not use the machine's proxy settings.
     QNetworkProxy::setApplicationProxy(QNetworkProxy::NoProxy);
+  }
+
+  void mapMenuRenderingAndReload()
+  {
+    TileServer server;
+    QTemporaryDir cache;
+    ApplicationOptions options; options.center = {0,0}; options.zoom = 0;
+    options.tiles = {server.urlTemplate(), cache.path()};
+    MainWindow window(options); window.show();
+    auto *canvas = window.findChild<MapWidget *>();
+    auto *source = window.findChild<TileSource *>();
+    QTRY_VERIFY(source->tile({0,0,0}));
+    auto centerColor = [canvas] { const auto image = canvas->grab().toImage(); return image.pixelColor(image.width()/2, image.height()/2); };
+    QCOMPARE(centerColor(), TileColor);
+    window.findChild<QAction *>("PULDNMP013")->trigger();
+    QVERIFY(!canvas->mapsEnabled());
+    window.findChild<QAction *>("PULDNMBC12")->trigger(); QCOMPARE(centerColor(), QColor(Qt::black));
+    window.findChild<QAction *>("PULDNMP013")->trigger();
+    QCOMPARE(centerColor(), TileColor);
+    window.findChild<QAction *>("0%")->trigger(); QCOMPARE(centerColor(), QColor(Qt::black));
+    window.findChild<QAction *>("100%")->trigger(); QCOMPARE(centerColor(), TileColor);
+    canvas->setMapGamma(2); QVERIFY(centerColor().green() > TileColor.green()); canvas->setMapGamma(1);
+    const int before = server.requests.size();
+    window.findChild<QAction *>("PULDNMP027")->trigger();
+    QTRY_VERIFY(server.requests.size() > before); QTRY_VERIFY(source->tile({0,0,0}));
+    QCOMPARE(centerColor(), TileColor);
+    const int beforeFlush = server.requests.size();
+    window.findChild<QAction *>("PULDNMP028")->trigger();
+    QTRY_VERIFY(server.requests.size() > beforeFlush); QTRY_VERIFY(source->tile({0,0,0}));
+    const QImage plain = canvas->grab().toImage();
+    window.findChild<QAction *>("PULDNMP003")->trigger(); QVERIFY(canvas->grab().toImage() != plain);
+    MainWindow restored(options);
+    QVERIFY(restored.findChild<QAction *>("PULDNMP003")->isChecked());
+    QVERIFY(restored.findChild<QAction *>("PULDNMBC12")->isChecked());
+    QVERIFY(!window.findChild<QAction *>("PULDNMP011")->isVisible());
+    QVERIFY(!window.findChild<QAction *>("POPUPMA046")->isEnabled());
+  }
+
+  void mapCoordinateDialogsAndBookmarks()
+  {
+    TileServer server; QTemporaryDir cache;
+    ApplicationOptions options; options.tiles = {server.urlTemplate(), cache.path()};
+    MainWindow window(options);
+    auto *canvas = window.findChild<MapWidget *>();
+    window.findChild<QAction *>("COORD001")->trigger();
+    auto *d = window.findChild<QDialog *>("mapCoordinatesDialog"); QVERIFY(d);
+    d->findChild<QDoubleSpinBox *>("mapLatitude")->setValue(-34.6037);
+    d->findChild<QDoubleSpinBox *>("mapLongitude")->setValue(-58.3816);
+    const auto result = d->findChild<QLabel *>("coordinateResult")->text();
+    QVERIFY(result.contains("S")); QVERIFY(result.contains("W")); QVERIFY(result.contains("34"));
+    d->findChild<QSpinBox *>("mapZoom")->setValue(10);
+    QTest::mouseClick(d->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok), Qt::LeftButton);
+    QCOMPARE(canvas->zoomLevel(), 10);
+    QVERIFY(std::abs(canvas->centerCoordinate().latitude + 34.6037) < 1e-6);
+    QSettings().setValue("map/bookmarks", QVariantList{QVariantMap{{"name","Home"},{"latitude",12.5},{"longitude",179.8},{"zoom",6}}});
+    window.findChild<QAction *>("PULDNMP012")->trigger();
+    auto *bookmarks = window.findChild<QDialog *>("mapBookmarksDialog"); QVERIFY(bookmarks);
+    QCOMPARE(bookmarks->findChild<QListWidget *>("mapBookmarks")->count(), 1);
+    QTest::mouseClick(bookmarks->findChild<QPushButton *>("goMapBookmark"), Qt::LeftButton);
+    QCOMPARE(canvas->zoomLevel(), 6); QVERIFY(std::abs(canvas->centerCoordinate().longitude - 179.8) < 1e-6);
+    QTest::mouseClick(bookmarks->findChild<QPushButton *>("deleteMapBookmark"), Qt::LeftButton);
+    QVERIFY(QSettings().value("map/bookmarks").toList().isEmpty());
+    QTimer::singleShot(0, [] {
+      auto *input = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+      QVERIFY(input); input->setTextValue("Saved view"); input->accept();
+    });
+    QTest::mouseClick(bookmarks->findChild<QPushButton *>("saveMapBookmark"), Qt::LeftButton);
+    const auto saved = QSettings().value("map/bookmarks").toList();
+    QCOMPARE(saved.size(), 1); QCOMPARE(saved[0].toMap().value("name").toString(), QString("Saved view"));
+    QCOMPARE(saved[0].toMap().value("zoom").toInt(), 6);
+  }
+
+  void mapChooserValidationAndSourceSwitch()
+  {
+    TileServer first, second; QTemporaryDir cache;
+    ApplicationOptions options; options.zoom = 0; options.tiles = {first.urlTemplate(), cache.path()};
+    MainWindow window(options); window.show();
+    auto *source = window.findChild<TileSource *>(); QTRY_VERIFY(source->tile({0,0,0}));
+    window.findChild<QAction *>("PULDNMP001")->trigger();
+    auto *d = window.findChild<QDialog *>("mapChooserDialog"); QVERIFY(d);
+    auto *url = d->findChild<QLineEdit *>("mapTileUrl");
+    url->setText("bad URL");
+    auto *ok = d->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok);
+    QTest::mouseClick(ok, Qt::LeftButton);
+    QVERIFY(!d->findChild<QLabel *>("mapChooserError")->text().isEmpty()); QCOMPARE(source->urlTemplate(), first.urlTemplate());
+    url->setText(second.urlTemplate()); d->findChild<QLineEdit *>("mapAttribution")->setText("Test map credit");
+    QTest::mouseClick(ok, Qt::LeftButton);
+    QTRY_VERIFY(!second.requests.isEmpty()); QTRY_VERIFY(source->tile({0,0,0}));
+    QCOMPARE(source->urlTemplate(), second.urlTemplate());
+    QCOMPARE(window.findChild<MapWidget *>()->mapAttribution(), QString("Test map credit"));
+    QCOMPARE(QSettings().value("map/tileUrl").toString(), second.urlTemplate());
   }
 
   void projectionRoundTrip_data()
