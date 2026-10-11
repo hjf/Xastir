@@ -231,7 +231,7 @@ Protocol references: [APRS message formats](https://www.aprs.org/doc/APRS101.PDF
 ## Tile provider and cache
 
 `--tile-url 'https://your-server/{z}/{x}/{y}.png'` selects a different XYZ provider.
-Tiles must be 256 × 256 pixels. HTTP URLs are also supported for local servers.
+PNG tiles may be 256, 512, or 1024 pixels square. HTTP URLs are also supported for local servers.
 The attribution is for OpenStreetMap data; a custom provider's additional
 attribution requirements must be addressed before distributing that configuration.
 
@@ -518,7 +518,7 @@ no Windows build was performed.
 
 ## Map menu
 
-Map Chooser selects a 256-pixel PNG XYZ tile source with `{z}`, `{x}`, and `{y}`
+Map Chooser selects a square PNG XYZ tile source with `{z}`, `{x}`, and `{y}`
 placeholders and a required attribution. HTTP(S) and local `file:` URLs work.
 The selection persists; an explicit `--tile-url` overrides it for that run.
 Map Display Bookmarks stores up to 200 named center/zoom views and supports
@@ -615,4 +615,34 @@ separate credential identities, and excludes response headers containing the
 configured key. Switching accounts cannot reuse the previous account's tile
 cache. Existing tiles from the earlier cache layout are fetched again once;
 Flush Entire Map Cache also removes that old layout. Tile images still must be
-256 × 256 PNGs, and the provider's required attribution must be supplied.
+256, 512, or 1024 pixels square, and the provider's required attribution must be supplied.
+
+
+MapTiler's default raster URL returns 512-pixel tiles, which are drawn in the
+same geographic tile extent as 256-pixel tiles. For native 256-pixel labels and
+smaller downloads, request `/256/` explicitly. For example, select URL-placeholder
+authentication and use this MapTiler OSM Dark template:
+
+```text
+https://api.maptiler.com/maps/openstreetmap-dark/256/{z}/{x}/{y}.png?key={api_key}
+```
+
+Enter the key in the separate API key field or the configured environment
+variable. Supply MapTiler/OpenStreetMap attribution in the Attribution field.
+The version without `/256/` also works; high-resolution PNGs are smoothly scaled
+to the map's logical 256-pixel XYZ tile extent.
+
+
+MapTiler HiDPI URLs with `@2x.png` are also supported. The default endpoint
+returns 1024-pixel tiles; `/256/...@2x.png` provides 512-pixel images for a
+256-pixel logical tile:
+
+```text
+https://api.maptiler.com/maps/openstreetmap-dark/256/{z}/{x}/{y}@2x.png?key={api_key}
+```
+
+Map geometry and station positions use logical pixels. Qt renders to the
+screen's device pixel ratio, using the higher-resolution source image when the
+display scaling requires it. A 1440p monitor does not by itself require HiDPI
+requests; at 100% scaling, ordinary `/256/` tiles usually suffice. HiDPI tile
+requests are selected explicitly by the URL and are not automatically enabled.

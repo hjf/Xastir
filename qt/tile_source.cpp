@@ -125,9 +125,17 @@ void TileSource::finishRequest(const TileId &id, QNetworkReply *reply)
     QBuffer buffer(&bytes);
     buffer.open(QIODevice::ReadOnly);
     QImageReader reader(&buffer, "png");
-    // This renderer uses standard 256-pixel XYZ raster tiles.
-    if (reader.size() != QSize(map::TileSize, map::TileSize))
+    // XYZ addresses describe geographic tiles independently of image density.
+    // MapTiler defaults to 512 pixels; @2x sources may return 1024 pixels.
+    // Keep a bounded decoded size, and paint the full image in a logical
+    // 256-pixel tile so station coordinates and zoom levels stay aligned.
+    const QSize dimensions = reader.size();
+    const int side = dimensions.width();
+    if (!dimensions.isValid())
       error = tr("The tile server returned an invalid map image");
+    else if (dimensions.height() != side || (side != 256 && side != 512 && side != 1024))
+      error = tr("Unsupported tile image size %1 × %2; expected square 256, 512, or 1024-pixel PNG tiles.")
+        .arg(dimensions.width()).arg(dimensions.height());
     else
     {
       const QImage image = reader.read();

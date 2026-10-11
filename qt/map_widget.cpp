@@ -121,6 +121,7 @@ void MapWidget::paintEvent(QPaintEvent *)
   QPainter painter(this);
   painter.fillRect(rect(), background_);
   painter.setOpacity(intensity_);
+  painter.setRenderHint(QPainter::SmoothPixmapTransform);
   const QPointF origin = viewportOrigin();
   const int firstX = int(std::floor(origin.x() / map::TileSize));
   const int firstY = std::max(0, int(std::floor(origin.y() / map::TileSize)));

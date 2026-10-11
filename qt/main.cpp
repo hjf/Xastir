@@ -25,7 +25,7 @@ int main(int argc, char *argv[])
     {{"latitude", "lat"}, "Initial center latitude (−85.0511 to 85.0511).", "degrees", "20"},
     {{"longitude", "lon"}, "Initial center longitude (−180 to 180).", "degrees", "0"},
     {{"zoom", "z"}, "Initial zoom level (0–19).", "level", "3"},
-    {"tile-url", "XYZ URL template for 256-pixel raster tiles.", "url", TileSourceOptions{}.urlTemplate},
+    {"tile-url", "XYZ URL template for raster PNG tiles.", "url", TileSourceOptions{}.urlTemplate},
     {"tile-api-key-env", "Environment variable containing the tile API key (with --tile-url).", "variable", "XASTIR_TILE_API_KEY"},
     {"tile-api-key-header", "HTTP header for the API key; omit to use {api_key} in the URL.", "header"},
     {"tile-api-key-bearer", "Send Authorization: Bearer using the tile API key."},

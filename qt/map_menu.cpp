@@ -259,7 +259,7 @@ void MapMenu::chooseMap()
     source->setCurrentIndex(0); authentication->setCurrentIndex(0); key->clear();
     url->setText("https://tile.openstreetmap.org/{z}/{x}/{y}.png"); credit->setText("© OpenStreetMap contributors");
   });
-  form->addRow(new QLabel(tr("256 × 256 PNG tiles. Use {api_key} in the URL path or query for URL authentication. Keys are not saved in settings."), d));
+  form->addRow(new QLabel(tr("Square 256, 512, or 1024-pixel PNG tiles. Use {api_key} in the URL path or query for URL authentication. Keys are not saved in settings."), d));
   auto *error = new QLabel(d); error->setObjectName("mapChooserError"); form->addRow(error);
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, d); form->addRow(buttons);
   connect(buttons, &QDialogButtonBox::rejected, d, &QDialog::reject);

@@ -71,6 +71,8 @@ public:
   bool hold = false;
   QByteArray redirectUrl, extraHeaders;
   bool redirectOnce = false;
+  QSize imageSize{map::TileSize, map::TileSize};
+  bool patterned = false;
 
   TileServer()
   {
@@ -108,8 +110,14 @@ public:
     QByteArray body;
     if (response == Image)
     {
-      QImage image(map::TileSize, map::TileSize, QImage::Format_RGB32);
+      QImage image(imageSize, QImage::Format_RGB32);
       image.fill(TileColor);
+      if (patterned) {
+        QPainter painter(&image);
+        const int w = image.width()/2, h = image.height()/2;
+        painter.fillRect(QRect(0,0,w,h), Qt::red); painter.fillRect(QRect(w,0,w,h), Qt::green);
+        painter.fillRect(QRect(0,h,w,h), Qt::blue); painter.fillRect(QRect(w,h,w,h), Qt::cyan);
+      }
       QBuffer buffer(&body);
       buffer.open(QIODevice::WriteOnly);
       image.save(&buffer, "PNG");
@@ -839,6 +847,59 @@ private slots:
     QVERIFY(canvas.grab().toImage().copy(QRect(310, 230, 20, 20))
             != image.copy(QRect(310, 230, 20, 20)));
     canvas.close();
+  }
+
+  void rasterImageDensityPreservesMapCoordinates_data()
+  {
+    QTest::addColumn<int>("side");
+    QTest::newRow("standard") << 256;
+    QTest::newRow("MapTiler-default") << 512;
+    QTest::newRow("retina") << 1024;
+  }
+
+  void rasterImageDensityPreservesMapCoordinates()
+  {
+    QFETCH(int, side);
+    TileServer server; server.imageSize = {side,side}; server.patterned = true;
+    QTemporaryDir cache;
+    ApplicationOptions options; options.center = {0,0}; options.zoom = 0;
+    const QString templateUrl = side == 1024 ? server.urlTemplate().replace(".png", "@2x.png") : server.urlTemplate();
+    options.tiles = {templateUrl, cache.path()};
+    MainWindow window(options); window.show();
+    auto *source = window.findChild<TileSource *>();
+    auto *canvas = window.findChild<MapWidget *>();
+    QTRY_VERIFY(source->tile({0,0,0})); QCOMPARE(source->tile({0,0,0})->size(), QSize(side,side));
+    const auto image = canvas->grab().toImage();
+    if (side == 1024) QVERIFY(server.requests.first().contains("@2x.png"));
+    const QPoint midpoint(image.width()/2,image.height()/2);
+    const int offset = qRound(64 * image.devicePixelRatio());
+    QCOMPARE(image.pixelColor(midpoint+QPoint(-offset,-offset)), QColor(Qt::red));
+    QCOMPARE(image.pixelColor(midpoint+QPoint(offset,-offset)), QColor(Qt::green));
+    QCOMPARE(image.pixelColor(midpoint+QPoint(-offset,offset)), QColor(Qt::blue));
+    QCOMPARE(image.pixelColor(midpoint+QPoint(offset,offset)), QColor(Qt::cyan));
+    // Geographic center and keyboard zoom retain their standard XYZ semantics.
+    QCOMPARE(canvas->coordinateToScreen({0,0}), QPointF(canvas->width()/2.0,canvas->height()/2.0));
+    QTest::keyClick(canvas, Qt::Key_Plus); QCOMPARE(canvas->zoomLevel(), 1);
+    QVERIFY(std::abs(canvas->centerCoordinate().latitude) < 1e-8);
+    QVERIFY(std::abs(canvas->centerCoordinate().longitude) < 1e-8);
+  }
+
+  void unsupportedRasterImageSize_data()
+  {
+    QTest::addColumn<QSize>("size");
+    QTest::newRow("non-square") << QSize(256,512);
+    QTest::newRow("unsupported") << QSize(300,300);
+    QTest::newRow("oversized") << QSize(2048,2048);
+  }
+  void unsupportedRasterImageSize()
+  {
+    QFETCH(QSize,size);
+    TileServer server; server.imageSize = size; QTemporaryDir cache;
+    TileSource source({server.urlTemplate(),cache.path()});
+    QSignalSpy status(&source, &TileSource::statusChanged);
+    source.setVisibleTiles({{0,0,0}});
+    QTRY_VERIFY(!status.isEmpty() && status.last().first().toString().contains("Unsupported tile image size"));
+    QVERIFY(!source.tile({0,0,0}));
   }
 
   void keyedTilesWireFormatAndPrivateCache_data()
