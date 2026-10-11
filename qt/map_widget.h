@@ -31,8 +31,8 @@ public:
   void setDisplayOptions(const What_to_display &value) { display_ = value; update(); }
   bool mapsEnabled() const { return mapsEnabled_; }
   void setMapsEnabled(bool enabled);
-  void setMapGrid(bool enabled) { grid_ = enabled; update(); }
-  void setMapBorder(bool enabled) { border_ = enabled; update(); }
+  void setMapGrid(bool enabled);
+  void setMapBorder(bool enabled);
   void setMapBackground(QColor color) { background_ = color; update(); }
   QString mapAttribution() const;
   void setMapAttribution(const QString &text);
@@ -67,6 +67,9 @@ private:
   void zoomAt(int zoom, QPointF position);
   QPointF viewportOrigin() const;
   void drawStations(QPainter &painter);
+  void drawGrid(QPainter &painter);
+  int mapFrameWidth() const;
+  void positionAttribution();
   void drawStationOverlays(QPainter &painter, const DataRow &row);
   void drawRange(QPainter &painter, map::Coordinate center, double meters, double start = 0, double span = 360);
 

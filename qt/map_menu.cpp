@@ -70,9 +70,12 @@ MapMenu::MapMenu(QMainWindow *window, MapWidget *map, TileSource *tiles, Station
     });
   };
   toggle("PULDNMP013", "disabled", false, [map](bool value) { map->setMapsEnabled(!value); });
-  toggle("PULDNMP003", "grid", false, [map](bool value) { map->setMapGrid(value); });
+  auto *border = window_->findChild<QAction *>("PULDNMP031");
+  toggle("PULDNMP003", "grid", false, [map, border](bool value) {
+    map->setMapGrid(value); border->setEnabled(value);
+  });
   toggle("PULDNMP031", "border", false, [map](bool value) { map->setMapBorder(value); });
-  window_->findChild<QAction *>("PULDNMP031")->setToolTip(tr("Show raster tile boundaries."));
+  window_->findChild<QAction *>("PULDNMP031")->setToolTip(tr("Show a white coordinate frame around the map grid."));
   auto choices = [this, bind](const QStringList &ids, const char *key, int initial, std::function<void(int)> apply) {
     auto *group = new QActionGroup(this);
     const int selected = qBound(0, QSettings().value(QString("map/%1").arg(key), initial).toInt(), int(ids.size()) - 1);

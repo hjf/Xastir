@@ -310,6 +310,63 @@ private slots:
     QVERIFY(!window.findChild<QAction *>("POPUPMA046")->isEnabled());
   }
 
+  void mapBorderIsLabeledViewportFrame_data()
+  {
+    QTest::addColumn<double>("latitude");
+    QTest::addColumn<double>("longitude");
+    QTest::addColumn<int>("zoom");
+    QTest::newRow("city") << -34.6037 << -58.3816 << 10;
+    QTest::newRow("east-dateline") << 20.0 << 179.9 << 5;
+    QTest::newRow("west-dateline") << -20.0 << -179.9 << 5;
+    QTest::newRow("repeated-worlds") << 0.0 << 0.0 << 0;
+    QTest::newRow("street") << -34.6037 << -58.3816 << 19;
+  }
+
+  void mapBorderIsLabeledViewportFrame()
+  {
+    QFETCH(double, latitude); QFETCH(double, longitude); QFETCH(int, zoom);
+    ApplicationOptions options; options.center = {latitude, longitude}; options.zoom = zoom;
+    MainWindow window(options);
+    auto *canvas = window.findChild<MapWidget *>();
+    canvas->setMapsEnabled(false); canvas->setMapBackground(TileColor);
+    window.resize(900, 650); window.show();
+    auto *grid = window.findChild<QAction *>("PULDNMP003");
+    auto *border = window.findChild<QAction *>("PULDNMP031");
+    QVERIFY(!border->isEnabled());
+    grid->trigger(); QVERIFY(border->isEnabled());
+    border->trigger(); QVERIFY(border->isChecked());
+    const auto image = canvas->grab().toImage();
+    // Each edge has a solid white band; coordinates are ink inside that band.
+    const int band = canvas->mapFrameWidth();
+    QVERIFY(band >= 14);
+    QCOMPARE(image.pixelColor(1, 1), QColor(Qt::white));
+    QCOMPARE(image.pixelColor(image.width()-2, 1), QColor(Qt::white));
+    QCOMPARE(image.pixelColor(1, image.height()-2), QColor(Qt::white));
+    QCOMPARE(image.pixelColor(image.width()-2, image.height()-2), QColor(Qt::white));
+    auto inkCount = [&image](QRect area) {
+      int count = 0;
+      for (int y = area.top(); y <= area.bottom(); ++y)
+        for (int x = area.left(); x <= area.right(); ++x) {
+          const auto color = image.pixelColor(x, y);
+          if (color.red() < 128 && color.green() < 128 && color.blue() < 128) ++count;
+        }
+      return count;
+    };
+    // Leave tick marks out of the sampled areas: these must contain text.
+    QVERIFY(inkCount(QRect(band, 0, image.width()-2*band, band-5)) > 30);
+    QVERIFY(inkCount(QRect(band, image.height()-band+6, image.width()-2*band, band-6)) > 30);
+    QVERIFY(inkCount(QRect(0, band, band-5, image.height()-2*band)) > 30);
+    QVERIFY(inkCount(QRect(image.width()-band+5, band, band-5, image.height()-2*band)) > 30);
+    canvas->setView({latitude, longitude + .01}, zoom);
+    QVERIFY(canvas->grab().toImage() != image);
+    grid->trigger(); QVERIFY(!border->isEnabled()); QVERIFY(border->isChecked());
+    const auto noGrid = canvas->grab().toImage();
+    QCOMPARE(noGrid.pixelColor(1, 1), TileColor);
+    // Re-enabling the grid restores the saved border preference.
+    grid->trigger(); QVERIFY(border->isEnabled());
+    QCOMPARE(canvas->grab().toImage().pixelColor(1, 1), QColor(Qt::white));
+  }
+
   void mapCoordinateDialogsAndBookmarks()
   {
     TileServer server; QTemporaryDir cache;

@@ -528,7 +528,9 @@ following. The Coordinate Calculator displays decimal degrees, degrees/minutes,
 and degrees/minutes/seconds using the shared original C converters.
 
 Disable All Maps cancels tile requests while retaining station overlays. Grid
-lines use geographic coordinates; Map Border shows XYZ tile boundaries.
+lines use geographic coordinates; Map Border adds a white viewport frame with longitude labels along the bottom,
+rotated latitude labels on both sides, and grid metadata at the top. The border
+is available when the map grid is enabled.
 Background, raster intensity, gamma, station text style, and icon outlines apply
 to rendering and persist. Intensity and gamma affect tiles, keeping station
 symbols and text legible. Re-download Maps invalidates the current viewport's

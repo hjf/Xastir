@@ -2,6 +2,7 @@
 #include "map_widget.h"
 #include "tile_source.h"
 #include "station_model.h"
+#include "aprs_position.h"
 
 #include <QHideEvent>
 #include <QKeyEvent>
@@ -156,39 +157,16 @@ void MapWidget::paintEvent(QPaintEvent *)
     }
   }
   painter.setOpacity(1);
-  if (grid_) {
-    painter.setPen(QPen(QColor(50, 70, 90, 150), 1, Qt::DashLine));
-    // Choose a geographic spacing with roughly 120 pixels between lines.
-    const double target = 360.0 * 120 / map::worldSize(zoom_);
-    double step = std::pow(10.0, std::floor(std::log10(target)));
-    for (double factor : {1.0, 2.0, 5.0, 10.0})
-      if (step * factor >= target) { step *= factor; break; }
-    const double left = origin.x() / map::worldSize(zoom_) * 360 - 180;
-    const double right = (origin.x() + width()) / map::worldSize(zoom_) * 360 - 180;
-    for (double lon = std::ceil(left / step) * step; lon <= right; lon += step) {
-      const double x = (lon + 180) / 360 * map::worldSize(zoom_) - origin.x();
-      painter.drawLine(QPointF(x, 0), QPointF(x, height()));
-      painter.drawText(QPointF(x + 3, height() - 40), QString::number(lon, 'g', 6) + "°");
-    }
-    const double top = map::fromWorld(origin, zoom_).latitude;
-    const double bottom = map::fromWorld(origin + QPointF(0, height()), zoom_).latitude;
-    for (double lat = std::ceil(bottom / step) * step; lat <= top; lat += step) {
-      const double y = coordinateToScreen({lat, centerCoordinate().longitude}).y();
-      painter.drawLine(QPointF(0, y), QPointF(width(), y));
-      painter.drawText(QPointF(4, y - 3), QString::number(lat, 'g', 6) + "°");
-    }
-  }
-  if (border_) {
-    painter.setPen(QPen(QColor("#657785"), 1));
-    for (int y = firstY; y <= lastY; ++y)
-      for (int x = firstX; x <= lastX; ++x)
-        painter.drawRect(QRectF(x * map::TileSize - origin.x(), y * map::TileSize - origin.y(), map::TileSize, map::TileSize));
-  }
+  painter.save();
+  const int frame = mapFrameWidth();
+  if (frame) painter.setClipRect(rect().adjusted(frame, frame, -frame, -frame));
   drawStations(painter);
+  painter.restore();
+  drawGrid(painter);
   painter.setPen(QColor("#35434e"));
   const QString hint = tr("Drag to pan · Scroll or +/− to zoom");
   const QRect textRect = painter.fontMetrics().boundingRect(hint).adjusted(-10, -7, 10, 7);
-  const QRect panel(12, 12, textRect.width(), textRect.height());
+  const QRect panel(frame + 12, frame + 12, textRect.width(), textRect.height());
   painter.fillRect(panel, QColor(255, 255, 255, 235));
   painter.drawText(panel, Qt::AlignCenter, hint);
 }
@@ -365,7 +343,8 @@ void MapWidget::drawStations(QPainter &painter)
   QRegion locations, occupied;
   for (const auto &label : labels)
     locations += QRect(qRound(label.point.x()) - 4, qRound(label.point.y()) - 4, 8, 8);
-  const QRect available = rect().adjusted(4, 4, -4, -36);
+  const int frame = mapFrameWidth();
+  const QRect available = rect().adjusted(frame + 4, frame + 4, -frame - 4, -frame - 36);
   const int cardHeight = int(std::ceil(std::max(display_.symbol ? 20.0 : 0.0, metrics.height()) + 6));
   for (auto &label : labels) {
     if (!display_.symbol && label.text.isEmpty()) continue;
@@ -452,8 +431,7 @@ void MapWidget::drawStations(QPainter &painter)
 void MapWidget::resizeEvent(QResizeEvent *event)
 {
   QWidget::resizeEvent(event);
-  attribution_->move(std::max(0, width() - attribution_->width() - 8),
-                     std::max(0, height() - attribution_->height() - 8));
+  positionAttribution();
   if (isVisible())
     tileTimer_.start();
 }
@@ -590,10 +568,118 @@ void MapWidget::setMapAttribution(const QString &text)
     attribution_->setText(text);
   }
   attribution_->adjustSize();
-  attribution_->move(std::max(0, width() - attribution_->width() - 8), std::max(0, height() - attribution_->height() - 8));
+  positionAttribution();
 }
 void MapWidget::setMapGamma(double gamma)
 {
   gamma_ = std::isfinite(gamma) ? std::clamp(gamma, 0.1, 5.0) : 1;
   correctedTiles_.clear(); update();
+}
+
+int MapWidget::mapFrameWidth() const
+{
+  // Legacy get_border_width() derives the white margin from the font height.
+  return grid_ && border_ ? (fontMetrics().height() * 3 / 2 + 2) & ~1 : 0;
+}
+
+void MapWidget::positionAttribution()
+{
+  const int frame = mapFrameWidth();
+  attribution_->move(std::max(frame, width() - frame - attribution_->width() - 8),
+                     std::max(frame, height() - frame - attribution_->height() - 8));
+}
+
+void MapWidget::setMapGrid(bool enabled)
+{
+  grid_ = enabled; positionAttribution(); update();
+}
+
+void MapWidget::setMapBorder(bool enabled)
+{
+  border_ = enabled; positionAttribution(); update();
+}
+
+void MapWidget::drawGrid(QPainter &painter)
+{
+  if (!grid_) return;
+  painter.save();
+  const int frame = mapFrameWidth();
+  const QRectF inner = QRectF(rect()).adjusted(frame, frame, -frame, -frame);
+  const QPointF origin = viewportOrigin();
+  const QFontMetrics metrics = painter.fontMetrics();
+  if (frame) {
+    // The legacy border is a white band around the viewport, not tile edges.
+    painter.fillRect(QRect(0, 0, width(), frame), Qt::white);
+    painter.fillRect(QRect(0, height() - frame, width(), frame), Qt::white);
+    painter.fillRect(QRect(0, frame, frame, height() - 2 * frame), Qt::white);
+    painter.fillRect(QRect(width() - frame, frame, frame, height() - 2 * frame), Qt::white);
+  }
+  auto coordinateLabel = [](double value, bool latitude) {
+    char text[64];
+    if (latitude) xastir_convert_lat_l2s(std::lround((90 - value) * 360000), text, sizeof(text), CONVERT_DEC_DEG);
+    else {
+      // Label the correct hemisphere even across the dateline or repeated worlds.
+      value -= std::floor((value + 180) / 360) * 360;
+      xastir_convert_lon_l2s(std::lround((180 + value) * 360000), text, sizeof(text), CONVERT_DEC_DEG);
+    }
+    return QString::fromLatin1(text).trimmed();
+  };
+  // Keep grid spacing legible and bounded for every supported zoom.
+  const double target = 360.0 * 120 / map::worldSize(zoom_);
+  double step = std::pow(10.0, std::floor(std::log10(target)));
+  for (double factor : {1.0, 2.0, 5.0, 10.0})
+    if (step * factor >= target) { step *= factor; break; }
+  const double left = (origin.x() + frame) / map::worldSize(zoom_) * 360 - 180;
+  const double right = (origin.x() + width() - frame) / map::worldSize(zoom_) * 360 - 180;
+  double lastLongitudeEnd = inner.left();
+  const QPen gridPen(QColor(50, 70, 90, 150), 1, Qt::DashLine);
+  for (double lon = std::ceil(left / step) * step; lon <= right; lon += step) {
+    const double x = (lon + 180) / 360 * map::worldSize(zoom_) - origin.x();
+    painter.setPen(gridPen);
+    painter.drawLine(QPointF(x, inner.top()), QPointF(x, inner.bottom()));
+    if (frame) {
+      painter.setPen(Qt::black);
+      painter.drawLine(QPointF(x, inner.bottom()), QPointF(x, inner.bottom() + 4));
+      const QString text = coordinateLabel(lon, false);
+      const double w = metrics.horizontalAdvance(text);
+      const double start = x - w / 2;
+      if (start >= lastLongitudeEnd + 4 && start + w < inner.right()) {
+        painter.drawText(QRectF(start, height() - frame + 4, w, frame - 4), Qt::AlignCenter, text);
+        lastLongitudeEnd = start + w;
+      }
+    }
+  }
+  const double top = map::fromWorld(origin + QPointF(0, frame), zoom_).latitude;
+  const double bottom = map::fromWorld(origin + QPointF(0, height() - frame), zoom_).latitude;
+  double lastLatitudeEnd = inner.top();
+  // Traverse from north to south to test label overlap in screen order.
+  for (double lat = std::floor(top / step) * step; lat >= bottom; lat -= step) {
+    const double y = coordinateToScreen({lat, centerCoordinate().longitude}).y();
+    painter.setPen(gridPen);
+    painter.drawLine(QPointF(inner.left(), y), QPointF(inner.right(), y));
+    if (frame) {
+      painter.setPen(Qt::black);
+      painter.drawLine(QPointF(inner.left() - 4, y), QPointF(inner.left(), y));
+      painter.drawLine(QPointF(inner.right(), y), QPointF(inner.right() + 4, y));
+      const QString text = coordinateLabel(lat, true);
+      const double w = metrics.horizontalAdvance(text);
+      const double start = y - w / 2;
+      if (start >= lastLatitudeEnd + 4 && start + w < inner.bottom()) {
+        for (double x : {frame / 2.0, width() - frame / 2.0}) {
+          painter.save(); painter.translate(x, y); painter.rotate(-90);
+          painter.drawText(QRectF(-w / 2, -metrics.height() / 2.0, w, metrics.height()), Qt::AlignCenter, text);
+          painter.restore();
+        }
+        lastLatitudeEnd = start + w;
+      }
+    }
+  }
+  if (frame) {
+    painter.setPen(Qt::black);
+    const QString metadata = tr("Latitude/Longitude grid · WGS 84 · %1, %2 to %3, %4")
+      .arg(coordinateLabel(top, true), coordinateLabel(left, false), coordinateLabel(bottom, true), coordinateLabel(right, false));
+    painter.drawText(QRectF(frame + 4, 0, inner.width() - 8, frame), Qt::AlignCenter,
+      metrics.elidedText(metadata, Qt::ElideRight, int(inner.width()) - 8));
+  }
+  painter.restore();
 }
