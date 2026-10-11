@@ -54,6 +54,7 @@ MapMenu::MapMenu(QMainWindow *window, MapWidget *map, TileSource *tiles, Station
         map_->setMapAttribution(QSettings().value("map/attribution").toString());
     }
   }
+  map_->setDarkMapMode(QSettings().value("map/darkMode", false).toBool());
   auto bind = [this](const char *id, std::function<void()> callback) {
     auto *action = window_->findChild<QAction *>(id);
     if (!action) return;
@@ -87,7 +88,7 @@ MapMenu::MapMenu(QMainWindow *window, MapWidget *map, TileSource *tiles, Station
     map->setMapGrid(value); border->setEnabled(value);
   });
   toggle("PULDNMP031", "border", false, [map](bool value) { map->setMapBorder(value); });
-  window_->findChild<QAction *>("PULDNMP031")->setToolTip(tr("Show a white coordinate frame around the map grid."));
+  window_->findChild<QAction *>("PULDNMP031")->setToolTip(tr("Show a labeled coordinate frame around the map grid."));
   auto choices = [this, bind](const QStringList &ids, const char *key, int initial, std::function<void(int)> apply) {
     auto *group = new QActionGroup(this);
     const int selected = qBound(0, QSettings().value(QString("map/%1").arg(key), initial).toInt(), int(ids.size()) - 1);
@@ -234,6 +235,9 @@ void MapMenu::chooseMap()
   }
   source->setCurrentIndex(qMax(0, source->findData(map_->baseMap())));
   form->addRow(tr("Base map"), source);
+  auto *theme = new QComboBox(d); theme->setObjectName("mapOverlayTheme");
+  theme->addItems({tr("Light"), tr("Dark")}); theme->setCurrentIndex(map_->darkMapMode() ? 1 : 0);
+  form->addRow(tr("Map border and overlays"), theme);
   QList<QCheckBox *> layers;
   const QStringList layerNames = {tr("Countries"), tr("Coastlines"), tr("Lakes"), tr("Rivers")};
   for (int i = 0; i < 4; ++i) {
@@ -274,12 +278,17 @@ void MapMenu::chooseMap()
   };
   connect(source, &QComboBox::currentIndexChanged, d, updateFields);
   connect(authentication, &QComboBox::currentIndexChanged, d, updateFields); updateFields();
-  connect(buttons, &QDialogButtonBox::accepted, d, [this, d, source, layers, url, credit, error, authentication, key, environment, header] {
+  connect(buttons, &QDialogButtonBox::accepted, d, [this, d, source, layers, url, credit, error, authentication, key, environment, header, theme] {
     const QString base = source->currentData().toString();
     int mask = 0;
     for (int i = 0; i < layers.size(); ++i) if (layers[i]->isChecked()) mask |= 1 << i;
     if (base == "naturalearth" && !mask) { error->setText(tr("Select at least one vector layer.")); return; }
+    auto applyTheme = [this, theme] {
+      map_->setDarkMapMode(theme->currentIndex() == 1);
+      QSettings().setValue("map/darkMode", map_->darkMapMode());
+    };
     if (base != "raster") {
+      applyTheme();
       map_->setVectorLayers(mask); map_->setBaseMap(base);
       QSettings().setValue("map/baseMap", base); QSettings().setValue("map/vectorLayers", mask);
       d->accept(); return;
@@ -299,8 +308,13 @@ void MapMenu::chooseMap()
     if (!TileSource::validate(text, credentials, &reason) || credit->text().trimmed().isEmpty()) {
       error->setText(reason.isEmpty() ? tr("Enter map attribution.") : reason); return;
     }
-    // Configure atomically and cancel old requests before changing the base map.
-    tiles_->configure(text, credentials); map_->setBaseMap("raster"); map_->setMapAttribution(credit->text().trimmed());
+    applyTheme();
+    // Appearance-only changes should retain decoded tiles and avoid downloads.
+    const auto existing = tiles_->authentication();
+    if (text != tiles_->urlTemplate() || existing.key != credentials.key || existing.environment != credentials.environment ||
+        existing.header != credentials.header || existing.prefix != credentials.prefix)
+      tiles_->configure(text, credentials);
+    map_->setBaseMap("raster"); map_->setMapAttribution(credit->text().trimmed());
     QSettings().setValue("map/tileKeyEnvironment", credentials.environment);
     QSettings().setValue("map/tileKeyHeader", credentials.header);
     QSettings().setValue("map/tileKeyPrefix", credentials.prefix);

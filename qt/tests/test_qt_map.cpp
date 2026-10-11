@@ -436,6 +436,60 @@ private slots:
     QVERIFY(image.pixelColor(128,128) != QColor(Qt::white));
   }
 
+  void darkMapBorderConfigurationAndPersistence()
+  {
+    TileServer server; QTemporaryDir cache;
+    ApplicationOptions options; options.center = {0,0}; options.zoom = 0;
+    options.tiles = {server.urlTemplate(),cache.path()};
+    MainWindow window(options); auto *canvas = window.findChild<MapWidget *>();
+    window.show(); auto *tiles = window.findChild<TileSource *>();
+    QTRY_VERIFY(tiles->tile({0,0,0}));
+    const qint64 tileIdentity = tiles->tile({0,0,0})->cacheKey();
+    window.findChild<QAction *>("PULDNMP003")->trigger();
+    window.findChild<QAction *>("PULDNMP031")->trigger();
+    const auto light = canvas->grab().toImage(); QCOMPARE(light.pixelColor(1,1), QColor(Qt::white));
+    auto openChooser = [&window] {
+      QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+      window.findChild<QAction *>("PULDNMP001")->trigger();
+      return window.findChild<QDialog *>("mapChooserDialog");
+    };
+    auto *dialog = openChooser(); QVERIFY(dialog);
+    dialog->findChild<QComboBox *>("mapOverlayTheme")->setCurrentIndex(1);
+    QVERIFY(!canvas->darkMapMode());
+    dialog->reject(); QVERIFY(!canvas->darkMapMode());
+    dialog = openChooser();
+    dialog->findChild<QComboBox *>("mapOverlayTheme")->setCurrentIndex(1);
+    QTest::mouseClick(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok), Qt::LeftButton);
+    QVERIFY(canvas->darkMapMode()); QVERIFY(QSettings().value("map/darkMode").toBool());
+    QVERIFY(tiles->tile({0,0,0})); QCOMPARE(tiles->tile({0,0,0})->cacheKey(), tileIdentity);
+    const auto dark = canvas->grab().toImage(); const int band = canvas->mapFrameWidth();
+    QCOMPARE(dark.pixelColor(1,1), QColor("#20262b"));
+    QCOMPARE(dark.pixelColor(dark.width()-2,dark.height()-2), QColor("#20262b"));
+    auto brightText = [&dark](QRect area) {
+      int count = 0;
+      for (int y=area.top(); y<=area.bottom(); ++y) for (int x=area.left(); x<=area.right(); ++x) {
+        const QColor color = dark.pixelColor(x,y);
+        if (color.red()>150 && color.green()>150 && color.blue()>150) ++count;
+      }
+      return count;
+    };
+    QVERIFY(brightText(QRect(band,0,dark.width()-2*band,band-5))>30);
+    QVERIFY(brightText(QRect(band,dark.height()-band+6,dark.width()-2*band,band-6))>30);
+    QVERIFY(brightText(QRect(0,band,band-5,dark.height()-2*band))>30);
+    QVERIFY(brightText(QRect(dark.width()-band+5,band,band-5,dark.height()-2*band))>30);
+    auto *credit = canvas->findChild<QLabel *>(); QVERIFY(credit);
+    QVERIFY(credit->styleSheet().contains("#20262b")); QVERIFY(credit->styleSheet().contains("#e6edf3"));
+    MainWindow restored(options); QVERIFY(restored.findChild<MapWidget *>()->darkMapMode());
+    dialog = openChooser(); dialog->findChild<QComboBox *>("mapOverlayTheme")->setCurrentIndex(0);
+    dialog->findChild<QLineEdit *>("mapTileUrl")->setText("invalid URL");
+    QTest::mouseClick(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok), Qt::LeftButton);
+    QVERIFY(canvas->darkMapMode()); QVERIFY(dialog->isVisible());
+    // Correcting the configuration applies the light choice again.
+    dialog->findChild<QLineEdit *>("mapTileUrl")->setText(server.urlTemplate());
+    QTest::mouseClick(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok), Qt::LeftButton);
+    QVERIFY(!canvas->darkMapMode()); QCOMPARE(canvas->grab().toImage().pixelColor(1,1), QColor(Qt::white));
+  }
+
   void mapBorderIsLabeledViewportFrame_data()
   {
     QTest::addColumn<double>("latitude");

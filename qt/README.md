@@ -528,7 +528,7 @@ following. The Coordinate Calculator displays decimal degrees, degrees/minutes,
 and degrees/minutes/seconds using the shared original C converters.
 
 Disable All Maps cancels tile requests while retaining station overlays. Grid
-lines use geographic coordinates; Map Border adds a white viewport frame with longitude labels along the bottom,
+lines use geographic coordinates; Map Border adds a labeled viewport frame with longitude labels along the bottom,
 rotated latitude labels on both sides, and grid metadata at the top. The border
 is available when the map grid is enabled.
 Background, map intensity, gamma, station text style, and icon outlines apply
@@ -646,3 +646,11 @@ screen's device pixel ratio, using the higher-resolution source image when the
 display scaling requires it. A 1440p monitor does not by itself require HiDPI
 requests; at 100% scaling, ordinary `/256/` tiles usually suffice. HiDPI tile
 requests are selected explicitly by the URL and are not automatically enabled.
+
+In Map Chooser, **Map border and overlays → Dark** uses a dark coordinate frame
+with light labels and tick marks, a lighter map grid, and dark hint/attribution
+panels. The choice persists between runs and applies to raster and offline maps.
+Choose Light for the original white frame. The setting applies when accepting
+the dialog; Cancel and invalid configurations leave the current appearance in
+place. Map tiles, background-color selection, station text/icon styles, and the
+application's menus and dialogs retain their independently configured appearance.

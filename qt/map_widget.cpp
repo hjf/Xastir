@@ -178,11 +178,12 @@ void MapWidget::paintEvent(QPaintEvent *)
   drawStations(painter);
   painter.restore();
   drawGrid(painter);
-  painter.setPen(QColor("#35434e"));
+  painter.setPen(darkMode_ ? chromeText() : QColor("#35434e"));
   const QString hint = tr("Drag to pan · Scroll or +/− to zoom");
   const QRect textRect = painter.fontMetrics().boundingRect(hint).adjusted(-10, -7, 10, 7);
   const QRect panel(frame + 12, frame + 12, textRect.width(), textRect.height());
-  painter.fillRect(panel, QColor(255, 255, 255, 235));
+  QColor panelColor = chromeBackground(); panelColor.setAlpha(235);
+  painter.fillRect(panel, panelColor);
   painter.drawText(panel, Qt::AlignCenter, hint);
 }
 
@@ -623,11 +624,11 @@ void MapWidget::drawGrid(QPainter &painter)
   const QPointF origin = viewportOrigin();
   const QFontMetrics metrics = painter.fontMetrics();
   if (frame) {
-    // The legacy border is a white band around the viewport, not tile edges.
-    painter.fillRect(QRect(0, 0, width(), frame), Qt::white);
-    painter.fillRect(QRect(0, height() - frame, width(), frame), Qt::white);
-    painter.fillRect(QRect(0, frame, frame, height() - 2 * frame), Qt::white);
-    painter.fillRect(QRect(width() - frame, frame, frame, height() - 2 * frame), Qt::white);
+    // The legacy border is a coordinate band around the viewport, not tile edges.
+    painter.fillRect(QRect(0, 0, width(), frame), chromeBackground());
+    painter.fillRect(QRect(0, height() - frame, width(), frame), chromeBackground());
+    painter.fillRect(QRect(0, frame, frame, height() - 2 * frame), chromeBackground());
+    painter.fillRect(QRect(width() - frame, frame, frame, height() - 2 * frame), chromeBackground());
   }
   auto coordinateLabel = [](double value, bool latitude) {
     char text[64];
@@ -647,13 +648,13 @@ void MapWidget::drawGrid(QPainter &painter)
   const double left = (origin.x() + frame) / map::worldSize(zoom_) * 360 - 180;
   const double right = (origin.x() + width() - frame) / map::worldSize(zoom_) * 360 - 180;
   double lastLongitudeEnd = inner.left();
-  const QPen gridPen(QColor(50, 70, 90, 150), 1, Qt::DashLine);
+  const QPen gridPen(darkMode_ ? QColor(188,203,216,160) : QColor(50,70,90,150), 1, Qt::DashLine);
   for (double lon = std::ceil(left / step) * step; lon <= right; lon += step) {
     const double x = (lon + 180) / 360 * map::worldSize(zoom_) - origin.x();
     painter.setPen(gridPen);
     painter.drawLine(QPointF(x, inner.top()), QPointF(x, inner.bottom()));
     if (frame) {
-      painter.setPen(Qt::black);
+      painter.setPen(chromeText());
       painter.drawLine(QPointF(x, inner.bottom()), QPointF(x, inner.bottom() + 4));
       const QString text = coordinateLabel(lon, false);
       const double w = metrics.horizontalAdvance(text);
@@ -673,7 +674,7 @@ void MapWidget::drawGrid(QPainter &painter)
     painter.setPen(gridPen);
     painter.drawLine(QPointF(inner.left(), y), QPointF(inner.right(), y));
     if (frame) {
-      painter.setPen(Qt::black);
+      painter.setPen(chromeText());
       painter.drawLine(QPointF(inner.left() - 4, y), QPointF(inner.left(), y));
       painter.drawLine(QPointF(inner.right(), y), QPointF(inner.right() + 4, y));
       const QString text = coordinateLabel(lat, true);
@@ -690,7 +691,7 @@ void MapWidget::drawGrid(QPainter &painter)
     }
   }
   if (frame) {
-    painter.setPen(Qt::black);
+    painter.setPen(chromeText());
     const QString metadata = tr("Latitude/Longitude grid · WGS 84 · %1, %2 to %3, %4")
       .arg(coordinateLabel(top, true), coordinateLabel(left, false), coordinateLabel(bottom, true), coordinateLabel(right, false));
     painter.drawText(QRectF(frame + 4, 0, inner.width() - 8, frame), Qt::AlignCenter,
@@ -715,3 +716,16 @@ void MapWidget::setBaseMap(const QString &source)
   update();
 }
 bool MapWidget::vectorMapReady() const { return vectors_->ready(baseMap_); }
+
+QColor MapWidget::chromeBackground() const { return darkMode_ ? QColor("#20262b") : QColor(Qt::white); }
+QColor MapWidget::chromeText() const { return darkMode_ ? QColor("#e6edf3") : QColor(Qt::black); }
+void MapWidget::setDarkMapMode(bool enabled)
+{
+  darkMode_ = enabled;
+  attribution_->setStyleSheet(QString("QLabel { background: %1; color: %2; padding: 5px 8px; }")
+    .arg(chromeBackground().name(), darkMode_ ? chromeText().name() : QStringLiteral("#202830")));
+  auto colors = attribution_->palette();
+  colors.setColor(QPalette::Link, darkMode_ ? QColor("#8dcaff") : QColor(Qt::blue));
+  attribution_->setPalette(colors);
+  update();
+}

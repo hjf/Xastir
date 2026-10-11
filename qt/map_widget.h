@@ -37,6 +37,8 @@ public:
   int vectorLayers() const { return vectorLayers_; }
   void setVectorFills(bool enabled) { vectorFills_ = enabled; update(); }
   void setVectorLabels(bool enabled) { vectorLabels_ = enabled; update(); }
+  bool darkMapMode() const { return darkMode_; }
+  void setDarkMapMode(bool enabled);
   bool mapsEnabled() const { return mapsEnabled_; }
   void setMapsEnabled(bool enabled);
   void setMapGrid(bool enabled);
@@ -79,6 +81,8 @@ private:
   QPointF viewportOrigin() const;
   void drawStations(QPainter &painter);
   void drawGrid(QPainter &painter);
+  QColor chromeBackground() const;
+  QColor chromeText() const;
   int mapFrameWidth() const;
   void positionAttribution();
   void drawStationOverlays(QPainter &painter, const DataRow &row);
@@ -88,7 +92,7 @@ private:
   QString baseMap_ = "raster", rasterAttribution_;
   int vectorLayers_ = 15;
   bool vectorFills_ = true, vectorLabels_ = true;
-  bool mapsEnabled_ = true, grid_ = false, border_ = false;
+  bool mapsEnabled_ = true, grid_ = false, border_ = false, darkMode_ = false;
   QColor background_{"#e8edf0"};
   double intensity_ = 1, gamma_ = 1;
   QCache<qint64, QPixmap> correctedTiles_{64 * 1024};
