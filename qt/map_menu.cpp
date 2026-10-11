@@ -46,8 +46,12 @@ MapMenu::MapMenu(QMainWindow *window, MapWidget *map, TileSource *tiles, Station
   if (restoreSelection) {
     const QString saved = QSettings().value("map/tileUrl").toString();
     if (!saved.isEmpty()) {
-      tiles_->setUrlTemplate(saved);
-      map_->setMapAttribution(QSettings().value("map/attribution").toString());
+      TileAuthentication authentication;
+      authentication.environment = QSettings().value("map/tileKeyEnvironment", "XASTIR_TILE_API_KEY").toString();
+      authentication.header = QSettings().value("map/tileKeyHeader").toByteArray();
+      authentication.prefix = QSettings().value("map/tileKeyPrefix").toByteArray();
+      if (tiles_->configure(saved, authentication))
+        map_->setMapAttribution(QSettings().value("map/attribution").toString());
     }
   }
   auto bind = [this](const char *id, std::function<void()> callback) {
@@ -237,23 +241,40 @@ void MapMenu::chooseMap()
     layer->setChecked(map_->vectorLayers() & (1 << i)); layers << layer; form->addRow(layer);
   }
   auto *url = new QLineEdit(tiles_->urlTemplate(), d); url->setObjectName("mapTileUrl"); form->addRow(tr("XYZ tile URL"), url);
+  const auto currentAuthentication = tiles_->authentication();
+  auto *authentication = new QComboBox(d); authentication->setObjectName("tileAuthentication");
+  authentication->addItems({tr("No API key"), tr("URL placeholder {api_key}"), tr("Custom HTTP header"), tr("Authorization: Bearer")});
+  authentication->setCurrentIndex(currentAuthentication.header.isEmpty() ? (tiles_->urlTemplate().contains("{api_key}") ? 1 : 0)
+    : currentAuthentication.header.toLower() == "authorization" && currentAuthentication.prefix == "Bearer " ? 3 : 2);
+  form->addRow(tr("Authentication"), authentication);
+  auto *key = new QLineEdit(currentAuthentication.key, d); key->setObjectName("tileApiKey"); key->setEchoMode(QLineEdit::Password);
+  key->setPlaceholderText(tr("Session only; leave blank to use the environment variable")); form->addRow(tr("API key"), key);
+  auto *environment = new QLineEdit(currentAuthentication.environment, d); environment->setObjectName("tileKeyEnvironment");
+  form->addRow(tr("Key environment variable"), environment);
+  auto *header = new QLineEdit(currentAuthentication.header.isEmpty() ? "X-API-Key" : QString::fromLatin1(currentAuthentication.header), d);
+  header->setObjectName("tileKeyHeader"); form->addRow(tr("Header name"), header);
   auto *credit = new QLineEdit(map_->rasterAttribution(), d); credit->setObjectName("mapAttribution"); form->addRow(tr("Attribution"), credit);
   auto *reset = new QPushButton(tr("Use OpenStreetMap"), d); form->addRow(reset);
-  connect(reset, &QPushButton::clicked, d, [source, url, credit] {
-    source->setCurrentIndex(0);
+  connect(reset, &QPushButton::clicked, d, [source, url, credit, authentication, key] {
+    source->setCurrentIndex(0); authentication->setCurrentIndex(0); key->clear();
     url->setText("https://tile.openstreetmap.org/{z}/{x}/{y}.png"); credit->setText("© OpenStreetMap contributors");
   });
-  form->addRow(new QLabel(tr("256 × 256 PNG tiles. URL must include {z}, {x}, {y}. Local file URLs are supported."), d));
+  form->addRow(new QLabel(tr("256 × 256 PNG tiles. Use {api_key} in the URL path or query for URL authentication. Keys are not saved in settings."), d));
   auto *error = new QLabel(d); error->setObjectName("mapChooserError"); form->addRow(error);
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, d); form->addRow(buttons);
   connect(buttons, &QDialogButtonBox::rejected, d, &QDialog::reject);
-  auto updateFields = [source, layers, url, credit, reset] {
+  auto updateFields = [source, layers, url, credit, reset, authentication, key, environment, header] {
     const bool raster = source->currentData().toString() == "raster";
     url->setEnabled(raster); credit->setEnabled(raster); reset->setEnabled(raster);
+    authentication->setEnabled(raster);
+    key->setEnabled(raster && authentication->currentIndex() != 0);
+    environment->setEnabled(key->isEnabled());
+    header->setEnabled(raster && authentication->currentIndex() == 2);
     for (auto *layer : layers) layer->setEnabled(source->currentData().toString() == "naturalearth");
   };
-  connect(source, &QComboBox::currentIndexChanged, d, updateFields); updateFields();
-  connect(buttons, &QDialogButtonBox::accepted, d, [this, d, source, layers, url, credit, error] {
+  connect(source, &QComboBox::currentIndexChanged, d, updateFields);
+  connect(authentication, &QComboBox::currentIndexChanged, d, updateFields); updateFields();
+  connect(buttons, &QDialogButtonBox::accepted, d, [this, d, source, layers, url, credit, error, authentication, key, environment, header] {
     const QString base = source->currentData().toString();
     int mask = 0;
     for (int i = 0; i < layers.size(); ++i) if (layers[i]->isChecked()) mask |= 1 << i;
@@ -263,12 +284,26 @@ void MapMenu::chooseMap()
       QSettings().setValue("map/baseMap", base); QSettings().setValue("map/vectorLayers", mask);
       d->accept(); return;
     }
-    const QString text = url->text().trimmed(); const QUrl parsed(text);
-    if (!parsed.isValid() || !(parsed.scheme() == "https" || parsed.scheme() == "http" || parsed.isLocalFile()) ||
-        !text.contains("{z}") || !text.contains("{x}") || !text.contains("{y}") || credit->text().trimmed().isEmpty()) {
-      error->setText(tr("Enter a valid XYZ URL and attribution.")); return;
+    const QString text = url->text().trimmed();
+    TileAuthentication credentials;
+    credentials.environment = environment->text().trimmed();
+    const int mode = authentication->currentIndex();
+    if (mode) credentials.key = key->text();
+    if (mode == 2) credentials.header = header->text().trimmed().toLatin1();
+    if (mode == 3) { credentials.header = "Authorization"; credentials.prefix = "Bearer "; }
+    QString reason;
+    if ((mode == 0 && text.contains("{api_key}")) || (mode == 1 && !text.contains("{api_key}")) ||
+        (mode == 2 && credentials.header.isEmpty())) {
+      error->setText(tr("Match the authentication method to the URL placeholder or header name.")); return;
     }
-    map_->setBaseMap("raster"); tiles_->setUrlTemplate(text); map_->setMapAttribution(credit->text().trimmed());
+    if (!TileSource::validate(text, credentials, &reason) || credit->text().trimmed().isEmpty()) {
+      error->setText(reason.isEmpty() ? tr("Enter map attribution.") : reason); return;
+    }
+    // Configure atomically and cancel old requests before changing the base map.
+    tiles_->configure(text, credentials); map_->setBaseMap("raster"); map_->setMapAttribution(credit->text().trimmed());
+    QSettings().setValue("map/tileKeyEnvironment", credentials.environment);
+    QSettings().setValue("map/tileKeyHeader", credentials.header);
+    QSettings().setValue("map/tileKeyPrefix", credentials.prefix);
     QSettings().setValue("map/baseMap", "raster");
     QSettings().setValue("map/tileUrl", text); QSettings().setValue("map/attribution", credit->text().trimmed());
     d->accept();

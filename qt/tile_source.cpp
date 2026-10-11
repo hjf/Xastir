@@ -4,23 +4,25 @@
 
 #include <QBuffer>
 #include <QImageReader>
-#include <QNetworkDiskCache>
+#include "tile_cache.h"
+#include <QCryptographicHash>
+#include <QHostAddress>
+#include <QRegularExpression>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QStandardPaths>
 #include <QTimer>
 
 TileSource::TileSource(const TileSourceOptions &options, QObject *parent)
-  : QObject(parent), urlTemplate_(options.urlTemplate)
+  : QObject(parent), urlTemplate_(options.urlTemplate), authentication_(options.authentication)
 {
   clock_.start();
   const QString directory = options.cacheDirectory.isEmpty()
     ? QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/tiles")
     : options.cacheDirectory;
-  auto *cache = new QNetworkDiskCache(&network_);
-  cache->setCacheDirectory(directory);
-  cache->setMaximumCacheSize(256 * 1024 * 1024);
+  auto *cache = new TileCache(directory, &network_);
   network_.setCache(cache);
+  updateCacheIdentity();
 }
 
 TileSource::~TileSource()
@@ -78,14 +80,18 @@ void TileSource::setVisibleTiles(const QList<TileId> &tiles)
 
 void TileSource::pumpQueue()
 {
+  QString configurationError;
+  if (!validate(urlTemplate_, authentication_, &configurationError)) {
+    queue_.clear(); emit statusChanged(configurationError); return;
+  }
   while (pending_.size() < MaxRequests && !queue_.isEmpty())
   {
     const TileId id = queue_.dequeue();
-    QString url = urlTemplate_;
-    url.replace(QStringLiteral("{z}"), QString::number(id.zoom));
-    url.replace(QStringLiteral("{x}"), QString::number(id.x));
-    url.replace(QStringLiteral("{y}"), QString::number(id.y));
-    QNetworkRequest request{QUrl(url)};
+    QNetworkRequest request{tileUrl(id)};
+    if (!authentication_.header.isEmpty())
+      request.setRawHeader(authentication_.header, authentication_.prefix + credential().toUtf8());
+    if (usesAuthentication())
+      request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::SameOriginRedirectPolicy);
     request.setRawHeader("User-Agent", "XastirQt/0.1 (+https://github.com/Xastir/Xastir)");
     request.setRawHeader("Accept", "image/png");
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferCache);
@@ -103,8 +109,16 @@ void TileSource::finishRequest(const TileId &id, QNetworkReply *reply)
 {
   pending_.remove(id);
   QString error;
-  if (reply->error() != QNetworkReply::NoError)
-    error = reply->errorString();
+  if (reply->error() != QNetworkReply::NoError) {
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    // Qt error strings can contain the full URL, including a query/path key.
+    if (status == 401 || status == 403) error = tr("Tile server denied access (HTTP %1); check the API key and account permissions.").arg(status);
+    else if (status == 429) error = tr("Tile server rate limit exceeded (HTTP 429).");
+    else if (reply->error() == QNetworkReply::InsecureRedirectError || reply->error() == QNetworkReply::TooManyRedirectsError)
+      error = tr("Tile server redirect was blocked.");
+    else if (status >= 400) error = tr("Tile server returned HTTP %1.").arg(status);
+    else error = tr("Tile request failed (network error %1).").arg(int(reply->error()));
+  }
   else
   {
     QByteArray bytes = reply->readAll();
@@ -159,11 +173,7 @@ void TileSource::reload(bool flushEntireCache)
   if (network_.cache()) {
     if (flushEntireCache) network_.cache()->clear();
     else for (const auto &id : visible) {
-      QString url = urlTemplate_;
-      url.replace("{z}", QString::number(id.zoom));
-      url.replace("{x}", QString::number(id.x));
-      url.replace("{y}", QString::number(id.y));
-      network_.cache()->remove(QUrl(url));
+      network_.cache()->remove(tileUrl(id));
     }
   }
   setVisibleTiles(visible);
@@ -171,11 +181,69 @@ void TileSource::reload(bool flushEntireCache)
 }
 void TileSource::setUrlTemplate(const QString &url)
 {
-  if (urlTemplate_ == url) return;
+  configure(url, {});
+}
+QString TileSource::credential() const
+{
+  return authentication_.key.isEmpty() ? qEnvironmentVariable(authentication_.environment.toUtf8().constData()) : authentication_.key;
+}
+bool TileSource::usesAuthentication() const
+{
+  return urlTemplate_.contains("{api_key}") || !authentication_.header.isEmpty();
+}
+QUrl TileSource::tileUrl(const TileId &id) const
+{
+  QString url = urlTemplate_;
+  url.replace("{z}", QString::number(id.zoom)).replace("{x}", QString::number(id.x)).replace("{y}", QString::number(id.y));
+  url.replace("{api_key}", QString::fromLatin1(QUrl::toPercentEncoding(credential())));
+  return QUrl(url);
+}
+void TileSource::updateCacheIdentity()
+{
+  const QByteArray material = usesAuthentication() ? authentication_.header.toLower() + '\0' + authentication_.prefix + credential().toUtf8() : QByteArray();
+  static_cast<TileCache *>(network_.cache())->setIdentity(QCryptographicHash::hash(material, QCryptographicHash::Sha256), usesAuthentication() ? credential().toUtf8() : QByteArray());
+}
+bool TileSource::configure(const QString &url, const TileAuthentication &authentication, QString *error)
+{
+  if (!validate(url, authentication, error, false)) return false;
   const auto visible = visible_.values();
   setVisibleTiles({});
-  urlTemplate_ = url;
+  urlTemplate_ = url; authentication_ = authentication;
+  updateCacheIdentity();
   images_.clear(); retryAfter_.clear(); lastError_.clear();
   setVisibleTiles(visible);
-  emit tileAvailable();
+  emit tileAvailable(); return true;
+}
+bool TileSource::validate(const QString &url, const TileAuthentication &authentication, QString *error, bool requireKey)
+{
+  auto fail = [error](const QString &message) { if (error) *error = message; return false; };
+  QString expanded = url;
+  expanded.replace("{z}", "0").replace("{x}", "0").replace("{y}", "0").replace("{api_key}", "key");
+  const QUrl parsed(expanded);
+  if (!url.contains("{z}") || !url.contains("{x}") || !url.contains("{y}") || expanded.contains('{') || expanded.contains('}') ||
+      !parsed.isValid() || !(parsed.scheme() == "https" || parsed.scheme() == "http" || parsed.isLocalFile()) ||
+      (!parsed.isLocalFile() && parsed.host().isEmpty()) || !parsed.userInfo().isEmpty() || !parsed.fragment().isEmpty())
+    return fail(tr("Enter a valid XYZ URL containing {z}, {x}, {y}, and optionally {api_key}."));
+  const bool authenticated = url.contains("{api_key}") || !authentication.header.isEmpty();
+  // Credentials may occupy a path or query component, never the URL authority.
+  if (QUrl(url).authority().contains("api_key")) return fail(tr("API keys must appear in the URL path or query, not the server name."));
+  if (authenticated && parsed.scheme() != "https" &&
+      !(parsed.scheme() == "http" && (parsed.host() == "localhost" || QHostAddress(parsed.host()).isLoopback())))
+    return fail(tr("API-keyed tile sources require HTTPS (except local loopback servers)."));
+  if (!authentication.header.isEmpty()) {
+    static const QRegularExpression token(QStringLiteral("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"));
+    const QByteArray name = authentication.header.toLower();
+    if (!token.match(QString::fromLatin1(authentication.header)).hasMatch() || name == "host" || name == "content-length" ||
+        name == "transfer-encoding" || name == "connection" || name.startsWith("proxy-") || name == "cookie" || name == "accept" || name == "user-agent")
+      return fail(tr("Enter a valid API-key header name, such as X-API-Key or Authorization."));
+  }
+  static const QRegularExpression environmentName(QStringLiteral("^[A-Za-z_][A-Za-z0-9_]*$"));
+  if (authenticated && !authentication.environment.isEmpty() && !environmentName.match(authentication.environment).hasMatch())
+    return fail(tr("Enter a valid environment variable name."));
+  const QString key = authentication.key.isEmpty() ? qEnvironmentVariable(authentication.environment.toUtf8().constData()) : authentication.key;
+  static const QRegularExpression controls(QStringLiteral("[\\x00-\\x1f\\x7f]"));
+  if (authenticated && (key.size() > 4096 || controls.match(key).hasMatch() || controls.match(QString::fromLatin1(authentication.prefix)).hasMatch()))
+    return fail(tr("The API key or header prefix contains invalid characters."));
+  if (authenticated && requireKey && key.isEmpty()) return fail(tr("Tile API key is missing. Enter it in Map Chooser or set the configured environment variable."));
+  return true;
 }

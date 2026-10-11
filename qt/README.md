@@ -579,3 +579,40 @@ arbitrary external maps, DBFAWK styling, projected shapefiles, legacy DOS ASCII
 or compressed maps, embedded map symbols, and map-file indexing remain future
 work. These low-resolution world datasets provide geographic context; they do
 not gain street-level detail when zoomed in.
+
+## API-keyed tile servers
+
+**Map → Map Chooser** supports an API key in the URL, a custom HTTP header
+(e.g. `X-API-Key`), or `Authorization: Bearer`. Use `{api_key}` in the URL path
+or query rather than pasting the key into the URL field, for example:
+
+```text
+https://tiles.example/{z}/{x}/{y}.png?key={api_key}
+```
+
+The API key field is masked and retained only for the current session. For
+restarts, set `XASTIR_TILE_API_KEY` before launching Xastir, or configure another
+environment variable name in Map Chooser. Only the URL template, authentication
+method, environment variable name, and attribution persist in ordinary settings.
+Changing providers cancels pending requests and resets decoded tiles.
+
+Command-line examples (the environment variable supplies the actual key):
+
+```sh
+./build/qt/qt/xastir-qt --tile-url 'https://tiles.example/{z}/{x}/{y}.png?key={api_key}'
+./build/qt/qt/xastir-qt --tile-url 'https://tiles.example/{z}/{x}/{y}.png' --tile-api-key-header X-API-Key
+./build/qt/qt/xastir-qt --tile-url 'https://tiles.example/{z}/{x}/{y}.png' --tile-api-key-bearer
+```
+
+`--tile-api-key-env VARIABLE` selects another environment variable. API-keyed
+sources require HTTPS; local loopback HTTP is supported for testing. Key values
+are URL-encoded when used in a path/query. Authenticated requests follow only
+same-origin redirects. Network errors show status codes and useful access/rate
+limit messages without including request URLs or keys.
+
+Disk caching remains available. Cache metadata uses opaque hashed URLs and
+separate credential identities, and excludes response headers containing the
+configured key. Switching accounts cannot reuse the previous account's tile
+cache. Existing tiles from the earlier cache layout are fetched again once;
+Flush Entire Map Cache also removes that old layout. Tile images still must be
+256 × 256 PNGs, and the provider's required attribution must be supplied.

@@ -2,6 +2,7 @@
 add_library(xastir_qt_ui STATIC
   map_projection.cpp map_projection.h
   tile_source.cpp tile_source.h
+  tile_cache.cpp tile_cache.h
   map_widget.cpp map_widget.h
   map_menu.cpp map_menu.h
   vector_maps.cpp vector_maps.h

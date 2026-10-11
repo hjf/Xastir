@@ -29,6 +29,8 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QBuffer>
+#include <QDirIterator>
+#include <QUrlQuery>
 #include <QDateTime>
 #include <QImage>
 #include <QFile>
@@ -46,18 +48,29 @@
 
 namespace
 {
+QByteArray requestHeader(const QByteArray &request, const QByteArray &name)
+{
+  for (const auto &line : request.split('\n')) {
+    const int separator = line.indexOf(':');
+    if (separator > 0 && line.left(separator).toLower() == name.toLower()) return line.mid(separator + 1).trimmed();
+  }
+  return {};
+}
+
 const QColor TileColor(35, 145, 100);
 
 // An actual HTTP server exercises asynchronous downloads without contacting OSM.
 class TileServer : public QObject
 {
 public:
-  enum Response { Image, NotFound, InvalidImage };
+  enum Response { Image, NotFound, InvalidImage, Unauthorized, Redirect };
   QTcpServer server;
   QList<QByteArray> requests;
   QList<QPointer<QTcpSocket>> held;
   Response response = Image;
   bool hold = false;
+  QByteArray redirectUrl, extraHeaders;
+  bool redirectOnce = false;
 
   TileServer()
   {
@@ -104,9 +117,13 @@ public:
     else
       body = "Not a map image";
     QByteArray header = response == NotFound ? "HTTP/1.1 404 Not Found\r\n" : "HTTP/1.1 200 OK\r\n";
+    if (response == Unauthorized) header = "HTTP/1.1 401 Unauthorized\r\n";
+    if (response == Redirect) header = "HTTP/1.1 302 Found\r\nLocation: " + redirectUrl + "\r\n";
+    header += extraHeaders;
     header += "Content-Type: image/png\r\nCache-Control: public, max-age=604800\r\n";
     header += "Date: " + QDateTime::currentDateTimeUtc().toString("ddd, dd MMM yyyy hh:mm:ss 'GMT'").toLatin1() + "\r\n";
     header += "Content-Length: " + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n";
+    if (response == Redirect && redirectOnce) response = Image;
     socket->write(header + body);
     socket->disconnectFromHost();
   }
@@ -822,6 +839,136 @@ private slots:
     QVERIFY(canvas.grab().toImage().copy(QRect(310, 230, 20, 20))
             != image.copy(QRect(310, 230, 20, 20)));
     canvas.close();
+  }
+
+  void keyedTilesWireFormatAndPrivateCache_data()
+  {
+    QTest::addColumn<bool>("header"); QTest::addColumn<bool>("path");
+    QTest::newRow("URL-query") << false << false;
+    QTest::newRow("URL-path") << false << true;
+    QTest::newRow("HTTP-header") << true << false;
+  }
+
+  void keyedTilesWireFormatAndPrivateCache()
+  {
+    QFETCH(bool, header); QFETCH(bool, path);
+    TileServer server; QTemporaryDir cache;
+    const QString key = "fixture-key&plus+/=%# {z}";
+    TileSourceOptions options; options.cacheDirectory = cache.path();
+    options.urlTemplate = path ? server.urlTemplate().replace(".png", "/{api_key}.png") : server.urlTemplate() + (header ? "" : "?key={api_key}");
+    options.authentication.key = key;
+    if (header) options.authentication.header = "X-API-Key";
+    server.extraHeaders = "X-Echo-Key: " + key.toUtf8() + "\r\nETag: " + key.toUtf8() + "\r\n";
+    {
+      TileSource source(options); source.setVisibleTiles({{3,2,1}});
+      QTRY_VERIFY(source.tile({3,2,1})); QCOMPARE(server.requests.size(), 1);
+      const QByteArray request = server.requests.first();
+      if (header) QCOMPARE(requestHeader(request, "X-API-Key"), key.toUtf8());
+      else {
+        const QUrl url = QUrl::fromEncoded("http://127.0.0.1" + request.split(' ')[1]);
+        if (path) QVERIFY(url.path(QUrl::FullyDecoded).endsWith(key + ".png"));
+        else QCOMPARE(QUrlQuery(url).queryItemValue("key", QUrl::FullyDecoded), key);
+        QVERIFY(requestHeader(request, "X-API-Key").isEmpty());
+      }
+    }
+    // Reopen the disk cache: same credentials retain the cached tile.
+    TileSource cached(options); cached.setVisibleTiles({{3,2,1}});
+    QTRY_VERIFY(cached.tile({3,2,1})); QCOMPARE(server.requests.size(), 1);
+    int files = 0;
+    QDirIterator iterator(cache.path(), QDir::Files, QDirIterator::Subdirectories);
+    while (iterator.hasNext()) {
+      QFile file(iterator.next()); QVERIFY(file.open(QIODevice::ReadOnly)); const QByteArray bytes = file.readAll(); ++files;
+      QVERIFY(!bytes.contains(key.toUtf8())); QVERIFY(!bytes.contains(QUrl::toPercentEncoding(key)));
+    }
+    QVERIFY(files > 0);
+    TileAuthentication changed = options.authentication; changed.key = "fixture-new-account";
+    QVERIFY(cached.configure(options.urlTemplate, changed));
+    QVERIFY(!cached.tile({3,2,1})); QTRY_VERIFY(cached.tile({3,2,1})); QCOMPARE(server.requests.size(), 2);
+    QVERIFY(server.requests.last().contains(changed.key.toUtf8()));
+  }
+
+  void keyedTilesEnvironmentErrorsAndRedirects()
+  {
+    TileServer server, other; QTemporaryDir cache;
+    TileSourceOptions options; options.urlTemplate = server.urlTemplate(); options.cacheDirectory = cache.path();
+    options.authentication.environment = "XASTIR_TEST_TILE_KEY";
+    options.authentication.header = "Authorization"; options.authentication.prefix = "Bearer ";
+    qunsetenv("XASTIR_TEST_TILE_KEY");
+    QString error;
+    QVERIFY(!TileSource::validate(options.urlTemplate, options.authentication, &error));
+    {
+      TileSource missing(options); QSignalSpy status(&missing, &TileSource::statusChanged);
+      missing.setVisibleTiles({{0,0,0}}); QVERIFY(server.requests.isEmpty());
+      QVERIFY(status.last().first().toString().contains("missing"));
+    }
+    qputenv("XASTIR_TEST_TILE_KEY", "fixture-bearer-key");
+    server.response = TileServer::Unauthorized;
+    {
+      TileSource denied(options); QSignalSpy status(&denied, &TileSource::statusChanged);
+      denied.setVisibleTiles({{0,0,0}});
+      QTRY_VERIFY(!status.isEmpty() && status.last().first().toString().contains("401"));
+      QCOMPARE(requestHeader(server.requests.first(), "Authorization"), QByteArray("Bearer fixture-bearer-key"));
+      for (const auto &entry : status) QVERIFY(!entry.first().toString().contains("fixture-bearer-key"));
+    }
+    {
+      TileSourceOptions urlOptions = options; urlOptions.urlTemplate += "?key={api_key}";
+      urlOptions.authentication.header.clear(); urlOptions.authentication.prefix.clear();
+      TileSource denied(urlOptions); QSignalSpy status(&denied, &TileSource::statusChanged);
+      denied.setVisibleTiles({{0,0,0}});
+      QTRY_VERIFY(!status.isEmpty() && status.last().first().toString().contains("401"));
+      for (const auto &entry : status) QVERIFY(!entry.first().toString().contains("fixture-bearer-key"));
+    }
+    server.response = TileServer::Redirect; server.redirectUrl = other.urlTemplate().replace("{z}","0").replace("{x}","0").replace("{y}","0").toUtf8();
+    {
+      TileSource redirect(options); QSignalSpy status(&redirect, &TileSource::statusChanged);
+      redirect.setVisibleTiles({{0,0,0}});
+      QTRY_VERIFY(!status.isEmpty() && status.last().first().toString().contains("unavailable"));
+      QVERIFY(other.requests.isEmpty()); QVERIFY(!redirect.tile({0,0,0}));
+    }
+    server.response = TileServer::Redirect; server.redirectOnce = true;
+    server.redirectUrl = server.urlTemplate().replace("/{z}/{x}/{y}.png", "/redirected.png").toUtf8();
+    {
+      TileSource redirect(options); redirect.setVisibleTiles({{0,0,0}});
+      QTRY_VERIFY(redirect.tile({0,0,0}));
+      QCOMPARE(requestHeader(server.requests.last(), "Authorization"), QByteArray("Bearer fixture-bearer-key"));
+    }
+    qunsetenv("XASTIR_TEST_TILE_KEY");
+    TileAuthentication invalid; invalid.key = "fixture-key"; invalid.header = "Host";
+    QVERIFY(!TileSource::validate(server.urlTemplate(), invalid, &error));
+    invalid.header = "X-API-Key"; invalid.key += "\r\nX-Injection: bad";
+    QVERIFY(!TileSource::validate(server.urlTemplate(), invalid, &error));
+    invalid.key = "fixture-key";
+    QVERIFY(!TileSource::validate("http://tile.example/{z}/{x}/{y}.png", invalid, &error));
+    QVERIFY(TileSource::validate("https://tile.example/{z}/{x}/{y}.png", invalid, &error));
+  }
+
+  void keyedTilesChooserSessionAndRestoration()
+  {
+    TileServer server; QTemporaryDir cache;
+    ApplicationOptions options; options.tiles = {server.urlTemplate(),cache.path()};
+    MainWindow window(options);
+    window.findChild<QAction *>("PULDNMP001")->trigger();
+    auto *dialog = window.findChild<QDialog *>("mapChooserDialog"); QVERIFY(dialog);
+    dialog->findChild<QComboBox *>("tileAuthentication")->setCurrentIndex(1);
+    dialog->findChild<QLineEdit *>("mapTileUrl")->setText(server.urlTemplate()+"?key={api_key}");
+    auto *key = dialog->findChild<QLineEdit *>("tileApiKey"); QCOMPARE(key->echoMode(), QLineEdit::Password);
+    auto *ok = dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok);
+    dialog->findChild<QLineEdit *>("tileKeyEnvironment")->setText("XASTIR_TEST_CHOOSER_KEY");
+    qunsetenv("XASTIR_TEST_CHOOSER_KEY"); QTest::mouseClick(ok,Qt::LeftButton);
+    QVERIFY(dialog->isVisible()); QVERIFY(dialog->findChild<QLabel *>("mapChooserError")->text().contains("missing"));
+    key->setText("fixture-session-key"); QTest::mouseClick(ok,Qt::LeftButton);
+    window.show(); auto *tiles = window.findChild<TileSource *>();
+    QTRY_VERIFY(!server.requests.isEmpty()); QVERIFY(server.requests.first().contains("key=fixture-session-key"));
+    QCOMPARE(tiles->authentication().key, QString("fixture-session-key"));
+    QSettings settings;
+    for (const auto &setting : settings.allKeys()) QVERIFY(!settings.value(setting).toString().contains("fixture-session-key"));
+    qputenv("XASTIR_TEST_CHOOSER_KEY", "fixture-restored-key");
+    ApplicationOptions defaultOptions; defaultOptions.tiles.cacheDirectory = cache.path();
+    MainWindow restored(defaultOptions);
+    QCOMPARE(restored.findChild<TileSource *>()->urlTemplate(), server.urlTemplate()+"?key={api_key}");
+    QVERIFY(restored.findChild<TileSource *>()->authentication().key.isEmpty());
+    restored.show(); QTRY_VERIFY(server.requests.last().contains("key=fixture-restored-key"));
+    qunsetenv("XASTIR_TEST_CHOOSER_KEY");
   }
 
   void downloadsAndPersistentCache()

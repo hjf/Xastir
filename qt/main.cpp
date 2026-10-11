@@ -26,6 +26,9 @@ int main(int argc, char *argv[])
     {{"longitude", "lon"}, "Initial center longitude (−180 to 180).", "degrees", "0"},
     {{"zoom", "z"}, "Initial zoom level (0–19).", "level", "3"},
     {"tile-url", "XYZ URL template for 256-pixel raster tiles.", "url", TileSourceOptions{}.urlTemplate},
+    {"tile-api-key-env", "Environment variable containing the tile API key (with --tile-url).", "variable", "XASTIR_TILE_API_KEY"},
+    {"tile-api-key-header", "HTTP header for the API key; omit to use {api_key} in the URL.", "header"},
+    {"tile-api-key-bearer", "Send Authorization: Bearer using the tile API key."},
     {"cache-dir", "Override the tile HTTP cache directory.", "directory"},
     {"config", "Read a legacy Xastir configuration (default: ~/.xastir/config/xastir.cnf).", "file"},
     {"no-config", "Do not import the legacy configuration."},
@@ -46,6 +49,11 @@ int main(int argc, char *argv[])
     options.zoom = 12;
   options.tileUrlExplicit = parser.isSet("tile-url");
   options.tiles.urlTemplate = parser.value("tile-url");
+  options.tiles.authentication.environment = parser.value("tile-api-key-env");
+  options.tiles.authentication.header = parser.value("tile-api-key-header").toLatin1();
+  if (parser.isSet("tile-api-key-bearer")) {
+    options.tiles.authentication.header = "Authorization"; options.tiles.authentication.prefix = "Bearer ";
+  }
   options.tiles.cacheDirectory = parser.value("cache-dir");
   QString error;
   if (!latitudeOk || !std::isfinite(options.center.latitude)
@@ -58,13 +66,11 @@ int main(int argc, char *argv[])
     error = QStringLiteral("Zoom must be an integer between 0 and 19.");
   else
   {
-    QString expanded = options.tiles.urlTemplate;
-    expanded.replace("{z}", "0").replace("{x}", "0").replace("{y}", "0");
-    const QUrl url(expanded);
-    if (!options.tiles.urlTemplate.contains("{z}") || !options.tiles.urlTemplate.contains("{x}")
-        || !options.tiles.urlTemplate.contains("{y}") || !url.isValid() || url.host().isEmpty()
-        || (url.scheme() != "https" && url.scheme() != "http"))
-      error = QStringLiteral("Tile URL must be an HTTP(S) URL containing {z}, {x}, and {y}.");
+    if ((parser.isSet("tile-api-key-env") || parser.isSet("tile-api-key-header") || parser.isSet("tile-api-key-bearer")) && !options.tileUrlExplicit)
+      error = QStringLiteral("Tile API key options require --tile-url.");
+    else if (parser.isSet("tile-api-key-header") && parser.isSet("tile-api-key-bearer"))
+      error = QStringLiteral("Choose either a custom tile API key header or bearer authentication.");
+    else TileSource::validate(options.tiles.urlTemplate, options.tiles.authentication, &error);
   }
   if (!error.isEmpty())
   {

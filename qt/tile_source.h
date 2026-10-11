@@ -28,10 +28,19 @@ inline size_t qHash(const TileId &id, size_t seed = 0) noexcept
   return qHashMulti(seed, id.zoom, id.x, id.y);
 }
 
+struct TileAuthentication
+{
+  QString key;
+  QString environment = QStringLiteral("XASTIR_TILE_API_KEY");
+  QByteArray header;
+  QByteArray prefix;
+};
+
 struct TileSourceOptions
 {
   QString urlTemplate = QStringLiteral("https://tile.openstreetmap.org/{z}/{x}/{y}.png");
   QString cacheDirectory;
+  TileAuthentication authentication{};
 };
 
 // Only requested viewport tiles are queued. HTTP cache metadata is managed by Qt.
@@ -44,6 +53,10 @@ public:
   ~TileSource() override;
   const QPixmap *tile(const TileId &id);
   QString urlTemplate() const { return urlTemplate_; }
+  TileAuthentication authentication() const { return authentication_; }
+  static bool validate(const QString &url, const TileAuthentication &authentication,
+                       QString *error = nullptr, bool requireKey = true);
+  bool configure(const QString &url, const TileAuthentication &authentication, QString *error = nullptr);
   void setUrlTemplate(const QString &url);
   void reload(bool flushEntireCache = false);
   void setVisibleTiles(const QList<TileId> &tiles);
@@ -58,7 +71,12 @@ private:
   void reportStatus();
 
   static constexpr int MaxRequests = 6;
+  QString credential() const;
+  bool usesAuthentication() const;
+  QUrl tileUrl(const TileId &id) const;
+  void updateCacheIdentity();
   QString urlTemplate_;
+  TileAuthentication authentication_;
   QNetworkAccessManager network_;
   QCache<TileId, QPixmap> images_{64 * 1024}; // KiB; 64 MiB decoded image budget.
   QHash<TileId, QNetworkReply *> pending_;
