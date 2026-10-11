@@ -15,6 +15,7 @@ int main(int argc, char *argv[])
   QApplication application(argc, argv);
   QApplication::setOrganizationName(QStringLiteral("Xastir"));
   QApplication::setApplicationName(QStringLiteral("XastirQt"));
+  QGuiApplication::setDesktopFileName(QStringLiteral("xastir-qt"));
   QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
 
   QCommandLineParser parser;
