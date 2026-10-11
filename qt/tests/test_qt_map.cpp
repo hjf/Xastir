@@ -447,6 +447,79 @@ private slots:
     window.close();
   }
 
+  void crowdedStationsHaveSeparateClickableCards_data()
+  {
+    QTest::addColumn<double>("longitude");
+    QTest::newRow("center") << 0.0;
+    QTest::newRow("left-edge") << -25.0;
+    QTest::newRow("right-edge") << 25.0;
+  }
+
+  void crowdedStationsHaveSeparateClickableCards()
+  {
+    QFETCH(double, longitude);
+    TileServer server;
+    QTemporaryDir cache;
+    TileSource tiles({server.urlTemplate(), cache.path()});
+    MapWidget canvas(&tiles, {0, 0}, 4);
+    canvas.resize(640, 480);
+    StationModel model;
+    for (int i = 0; i < 12; ++i)
+      QVERIFY(model.upsert({QString("CLOSE-%1").arg(i, 2, 10, QChar('0')), {0, longitude}, '/', '-', std::nullopt}));
+    canvas.setStationModel(&model);
+    canvas.show();
+    const QImage rendered = canvas.grab().toImage();
+    QCOMPARE(canvas.stationHits_.size(), 12);
+    const QPointF location = canvas.coordinateToScreen({0, longitude});
+    int displaced = 0;
+    QSignalSpy clicks(&canvas, &MapWidget::stationClicked);
+    const auto placements = canvas.stationHits_;
+    for (int i = 0; i < placements.size(); ++i) {
+      const auto &hit = placements[i];
+      QVERIFY(canvas.rect().contains(hit.bounds.toAlignedRect()));
+      QCOMPARE(hit.location, location);
+      for (int j = 0; j < i; ++j)
+        QVERIFY(!hit.bounds.intersects(placements[j].bounds));
+      if (!hit.bounds.contains(location)) ++displaced;
+      QTest::mouseClick(&canvas, Qt::LeftButton, Qt::NoModifier, hit.bounds.center().toPoint());
+      QCOMPARE(clicks.last().first().toString(), hit.name);
+    }
+    QVERIFY(displaced >= 11);
+    QCOMPARE(rendered.pixelColor(location.toPoint()), QColor("#192d3b"));
+    canvas.grab();
+    for (int i = 0; i < placements.size(); ++i)
+      QCOMPARE(canvas.stationHits_[i].bounds, placements[i].bounds);
+    model.clear();
+    canvas.grab();
+    QVERIFY(canvas.stationHits_.isEmpty());
+  }
+
+  void crowdedViewportKeepsDotsWithoutOverlappingText()
+  {
+    TileServer server;
+    QTemporaryDir cache;
+    TileSource tiles({server.urlTemplate(), cache.path()});
+    MapWidget canvas(&tiles, {0, 0}, 4);
+    canvas.resize(360, 256);
+    StationModel model;
+    for (int i = 0; i < 100; ++i)
+      QVERIFY(model.upsert({QString("DENSE-%1").arg(i), {0, 0}, '/', '-', std::nullopt}));
+    canvas.setStationModel(&model);
+    canvas.show();
+    const auto rendered = canvas.grab().toImage();
+    QVERIFY(!canvas.stationHits_.isEmpty());
+    QVERIFY(canvas.stationHits_.size() < 100);
+    for (int i = 0; i < canvas.stationHits_.size(); ++i)
+      for (int j = 0; j < i; ++j)
+        QVERIFY(!canvas.stationHits_[i].bounds.intersects(canvas.stationHits_[j].bounds));
+    QCOMPARE(rendered.pixelColor(canvas.coordinateToScreen({0, 0}).toPoint()), QColor("#192d3b"));
+    auto display = canvas.displayOptions();
+    display.symbol = false; display.callsign = false;
+    canvas.setDisplayOptions(display);
+    canvas.grab();
+    QVERIFY(canvas.stationHits_.isEmpty());
+  }
+
   void stationWrappingMatchesTheMap()
   {
     TileServer server;
@@ -465,8 +538,22 @@ private slots:
     canvas.show();
     const QImage image = canvas.grab().toImage();
     // At zoom zero a wide viewport shows multiple copies of the same world.
-    QCOMPARE(image.copy(QRect(54, 230, 20, 20)), image.copy(QRect(310, 230, 20, 20)));
-    QCOMPARE(image.copy(QRect(566, 230, 20, 20)), image.copy(QRect(310, 230, 20, 20)));
+    QCOMPARE(canvas.stationHits_.size(), 3);
+    const auto hits = canvas.stationHits_;
+    auto iconRect = [](const auto &hit) {
+      return QRect(QPoint(qRound(hit.bounds.left() + 13) - 10,
+                          qRound(hit.bounds.center().y()) - 10), QSize(20, 20));
+    };
+    // Edge copies can move inward to keep their labels fully visible.
+    AprsSymbols symbols;
+    const auto icon = symbols.image('/', '-');
+    for (const auto &hit : hits)
+      for (int y = 0; y < icon.height(); ++y)
+        for (int x = 0; x < icon.width(); ++x)
+          if (icon.pixelColor(x, y).alpha() == 255)
+            QCOMPARE(image.pixelColor(iconRect(hit).topLeft() + QPoint(x, y)), icon.pixelColor(x, y));
+    QCOMPARE(hits[1].location - hits[0].location, QPointF(256, 0));
+    QCOMPARE(hits[2].location - hits[1].location, QPointF(256, 0));
     model.clear();
     QVERIFY(canvas.grab().toImage().copy(QRect(310, 230, 20, 20))
             != image.copy(QRect(310, 230, 20, 20)));

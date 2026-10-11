@@ -47,6 +47,9 @@ protected:
   void keyPressEvent(QKeyEvent *event) override;
 
 private:
+  friend class MapTest;
+  struct StationHit { QString name; QRectF bounds; QPointF location; };
+  QList<StationHit> stationHits_;
   void refreshTiles();
   void updateView();
   void zoomAt(int zoom, QPointF position);

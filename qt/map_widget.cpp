@@ -10,6 +10,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QResizeEvent>
+#include <QRegion>
 #include <QShowEvent>
 #include <QWheelEvent>
 #include <QDateTime>
@@ -242,6 +243,7 @@ void MapWidget::drawStationOverlays(QPainter &painter, const DataRow &row)
 
 void MapWidget::drawStations(QPainter &painter)
 {
+  stationHits_.clear();
   if (!stations_)
     return;
   painter.save();
@@ -249,6 +251,8 @@ void MapWidget::drawStations(QPainter &painter)
   labelFont.setBold(true);
   const QFontMetricsF metrics(labelFont);
   const double world = map::worldSize(zoom_);
+  struct Label { QString name, text; QPointF point; QImage icon; QRectF bounds; QPointF anchor; };
+  QList<Label> labels;
   const DataRow *local = nullptr;
   for (const auto *row = stations_->database()->first; row; row = row->n_next)
     if (row->flag & ST_MYSTATION) { local = row; break; }
@@ -293,17 +297,76 @@ void MapWidget::drawStations(QPainter &painter)
     for (int copy = firstCopy; copy <= lastCopy; ++copy)
     {
       const QPointF point = nearest + QPointF(copy * world, 0);
-      const QPoint anchor(qRound(point.x()), qRound(point.y()));
-      if (display_.symbol) painter.drawImage(anchor - QPoint(icon.width() / 2, icon.height() / 2), icon);
-      QPainterPath label;
-      label.addText(QPointF(anchor.x() + 14, anchor.y() + (metrics.ascent() - metrics.descent()) / 2),
-                    labelFont, text);
-      painter.setRenderHint(QPainter::Antialiasing, true);
+      if (display_.symbol || !text.isEmpty())
+        labels.append({station.callsign, text, point, icon, {}, {}});
+    }
+  }
+
+  // Reserve actual locations before placing cards, so a moved card cannot cover
+  // another station's dot. QRegion keeps collision queries out of a pairwise loop.
+  QRegion locations, occupied;
+  for (const auto &label : labels)
+    locations += QRect(qRound(label.point.x()) - 4, qRound(label.point.y()) - 4, 8, 8);
+  const QRect available = rect().adjusted(4, 4, -4, -36);
+  const int cardHeight = int(std::ceil(std::max(display_.symbol ? 20.0 : 0.0, metrics.height()) + 6));
+  for (auto &label : labels) {
+    if (!display_.symbol && label.text.isEmpty()) continue;
+    const double textWidth = label.text.isEmpty() ? 0 : metrics.horizontalAdvance(label.text) + 4;
+    const double cardWidth = (display_.symbol ? 24 : 0) + textWidth + 6;
+    const QPointF preferred(label.point.x() - (display_.symbol ? 13 : -10), label.point.y() - cardHeight / 2.0);
+    auto place = [&](QPointF topLeft, bool original) {
+      QRectF bounds(topLeft, QSizeF(cardWidth, cardHeight));
+      const QRect collision = bounds.toAlignedRect();
+      if (!available.contains(collision) || occupied.intersects(collision)) return false;
+      if (!original && locations.intersects(collision)) return false;
+      label.bounds = bounds;
+      label.anchor = topLeft + QPointF(display_.symbol ? 13 : -10, cardHeight / 2.0);
+      occupied += collision.adjusted(-3, -3, 3, 3);
+      return true;
+    };
+    if (place(preferred, true)) continue;
+    // Search nearby slots first, with a fixed viewport-sized budget per card.
+    // Ordering is deterministic (the station projection is sorted by callsign).
+    const int columns = std::max(1, available.width() / 24);
+    const int rows = std::max(1, available.height() / (cardHeight + 6));
+    bool placed = false;
+    int attempts = 0;
+    for (int ring = 1; ring <= std::max(columns, rows) && !placed && attempts < 2048; ++ring) {
+      for (int y = -std::min(ring, rows); y <= std::min(ring, rows) && !placed && attempts < 2048; ++y) {
+        for (int x = -std::min(ring, columns); x <= std::min(ring, columns) && attempts < 2048; ++x) {
+          if (std::max(std::abs(x), std::abs(y)) != ring) continue;
+          ++attempts;
+          if (place(preferred + QPointF(x * 24, y * (cardHeight + 6)), false)) { placed = true; break; }
+        }
+      }
+    }
+  }
+  painter.setRenderHint(QPainter::Antialiasing, true);
+  // Draw connectors underneath all cards, so they never obscure label text.
+  for (const auto &label : labels) {
+    if (label.bounds.isEmpty() || QLineF(label.anchor, label.point).length() < 1) continue;
+    const QPointF end(std::clamp(label.point.x(), label.bounds.left(), label.bounds.right()),
+                      std::clamp(label.point.y(), label.bounds.top(), label.bounds.bottom()));
+    painter.setPen(QPen(Qt::white, 3)); painter.drawLine(label.point, end);
+    painter.setPen(QPen(QColor("#192d3b"), 1)); painter.drawLine(label.point, end);
+  }
+  for (const auto &label : labels) {
+    if (!label.bounds.isEmpty()) {
+      stationHits_.append({label.name, label.bounds, label.point});
+      if (QLineF(label.anchor, label.point).length() >= 1)
+        painter.fillRect(label.bounds, QColor(255, 255, 255, 225));
+      if (display_.symbol) painter.drawImage(label.anchor - QPointF(label.icon.width()/2.0, label.icon.height()/2.0), label.icon);
+      QPainterPath path;
+      path.addText(label.anchor + QPointF(14, (metrics.ascent() - metrics.descent()) / 2), labelFont, label.text);
       painter.setPen(QPen(Qt::white, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-      painter.setBrush(QColor("#192d3b"));
-      painter.drawPath(label);
-      painter.setPen(Qt::NoPen);
-      painter.drawPath(label);
+      painter.setBrush(QColor("#192d3b")); painter.drawPath(path);
+      painter.setPen(Qt::NoPen); painter.drawPath(path);
+    }
+  }
+  for (const auto &label : labels) {
+    if (label.bounds.isEmpty() || QLineF(label.anchor, label.point).length() >= 1 || !display_.symbol) {
+      painter.setPen(QPen(Qt::white, 1.5)); painter.setBrush(QColor("#192d3b"));
+      painter.drawEllipse(label.point, 3, 3);
     }
   }
   painter.restore();
@@ -376,7 +439,11 @@ void MapWidget::mouseReleaseEvent(QMouseEvent *event)
   {
     if (!dragged_ && stations_) {
       QString selected; double best=225;
+      for (const auto &hit : stationHits_)
+        if (stationVisible(hit.name) && hit.bounds.contains(event->position())) { selected = hit.name; break; }
+      const bool hitLabel = !selected.isEmpty();
       for (const auto &station : stations_->stations()) {
+        if (hitLabel) break;
         if (!stationVisible(station.callsign)) continue;
         QPointF delta=coordinateToScreen(station.position)-event->position();
         const double world=map::worldSize(zoom_);
