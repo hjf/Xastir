@@ -531,16 +531,51 @@ Disable All Maps cancels tile requests while retaining station overlays. Grid
 lines use geographic coordinates; Map Border adds a white viewport frame with longitude labels along the bottom,
 rotated latitude labels on both sides, and grid metadata at the top. The border
 is available when the map grid is enabled.
-Background, raster intensity, gamma, station text style, and icon outlines apply
-to rendering and persist. Intensity and gamma affect tiles, keeping station
-symbols and text legible. Re-download Maps invalidates the current viewport's
+Background, map intensity, gamma, station text style, and icon outlines apply
+to rendering and persist. Intensity affects the base map; gamma affects raster tiles. Station
+symbols and text retain their contrast. Re-download Maps invalidates the current viewport's
 cached tiles. Flush Entire Map Cache clears this application's tile disk cache
 and decoded images, then reloads the visible tiles.
 
 Legacy CAD polygons, GNIS feature lookup, street-address geocoding, weather-alert
-map layers, DRG configuration, vector map styling, automatic map selection, and
+map layers, DRG configuration, advanced vector map styling, automatic map selection, and
 map-file indexing require additional backends and are explicitly unavailable.
 Raster labels and fills are baked into the selected source. Coordinate UTM/MGRS
 input has not been migrated. The Motif Mouse Pointer Menu and fast-copy drawing
 switch are hidden; Qt provides direct drag, wheel, keyboard, and station-click
 interactions. These changes were validated on Linux with offscreen tests.
+
+
+## Offline vector maps
+
+In **Map → Map Chooser**, select **Offline world map (bundled)** for the original
+`worldhi.map`, or **Offline Natural Earth (bundled)** for countries, coastlines,
+lakes, and rivers. Natural Earth includes layer checkboxes. The source and layer
+selection persist, so restarting with an offline source does not request Internet
+tiles. An explicit `--tile-url` selects raster tiles for that run. Switching back
+to raster restores the tile provider and its attribution.
+
+Both datasets are embedded in the Qt application; they work from an installed
+binary without the source tree or a previously populated tile cache. Initial
+loading and Shapelib file access run on a worker thread. Geometry is cached after
+loading, culled by viewport, and wrapped at the dateline. Multipart lines stay
+separate and polygon interiors use an odd/even fill rule to preserve holes.
+Natural Earth data is public domain; its license is included in the map resources.
+
+**Map → Enable Map Labels** and **Enable Area Color Fills** control Natural Earth
+vectors (the older world map contains only lines). Labels are shown at world/regional zoom levels (2–8), with collisions
+suppressed. Disable All Maps hides either base map while retaining APRS overlays;
+the grid and labeled frame work with both raster and vector sources.
+
+Natural Earth uses Shapelib, as the legacy frontend does. CMake detects it when
+available (Linux package `libshp-dev`), or accepts `SHAPELIB_INCLUDE_DIR` and
+`SHAPELIB_LIBRARY`. Without it, the original world map remains available and the
+Natural Earth chooser entry is disabled. `-DXASTIR_WITH_SHAPELIB=OFF` explicitly
+builds that fallback. The shared C core contains the binary-map coordinate reader
+and Shapelib geometry/label extraction; Qt handles projection and painting.
+
+This first version supports the bundled datasets with basic styles. Loading
+arbitrary external maps, DBFAWK styling, projected shapefiles, legacy DOS ASCII
+or compressed maps, embedded map symbols, and map-file indexing remain future
+work. These low-resolution world datasets provide geographic context; they do
+not gain street-level detail when zoomed in.

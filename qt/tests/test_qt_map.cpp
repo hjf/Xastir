@@ -3,6 +3,11 @@
 #include "map_widget.h"
 #include "map_projection.h"
 #include "tile_source.h"
+#include "vector_maps.h"
+#include "vector_map.h"
+#include <QPainter>
+#include <QComboBox>
+#include <QCheckBox>
 #include "aprs_symbols.h"
 #include "station_model.h"
 #include "station_db.h"
@@ -308,6 +313,102 @@ private slots:
     QVERIFY(restored.findChild<QAction *>("PULDNMBC12")->isChecked());
     QVERIFY(!window.findChild<QAction *>("PULDNMP011")->isVisible());
     QVERIFY(!window.findChild<QAction *>("POPUPMA046")->isEnabled());
+  }
+
+  void offlineChooserDoesNotRequestTiles()
+  {
+    TileServer server; QTemporaryDir cache;
+    ApplicationOptions options; options.center = {0,0}; options.zoom = 2;
+    options.tiles = {server.urlTemplate(), cache.path()};
+    MainWindow window(options);
+    auto *canvas = window.findChild<MapWidget *>();
+    window.findChild<QAction *>("PULDNMP001")->trigger();
+    auto *d = window.findChild<QDialog *>("mapChooserDialog"); QVERIFY(d);
+    d->findChild<QComboBox *>("mapSource")->setCurrentIndex(1);
+    QTest::mouseClick(d->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok), Qt::LeftButton);
+    QCOMPARE(canvas->baseMap(), QString("world"));
+    window.show(); QTRY_VERIFY(canvas->vectorMapReady());
+    const auto image = canvas->grab().toImage();
+    canvas->setMapsEnabled(false); QVERIFY(canvas->grab().toImage() != image); canvas->setMapsEnabled(true);
+    QVERIFY(server.requests.isEmpty());
+    QVERIFY(!window.findChild<QAction *>("PULDNMP010")->isEnabled());
+    QVERIFY(!window.findChild<QAction *>("PULDNMP027")->isEnabled());
+    canvas->setView({-34.6,-58.4}, 8); QVERIFY(canvas->grab().toImage() != image);
+    ApplicationOptions restoredOptions;
+    MainWindow restored(restoredOptions);
+    QCOMPARE(restored.findChild<MapWidget *>()->baseMap(), QString("world"));
+    // Switching back to tiles restores their provider credit and controls.
+    window.findChild<QAction *>("PULDNMP001")->trigger();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    d = window.findChild<QDialog *>("mapChooserDialog");
+    d->findChild<QComboBox *>("mapSource")->setCurrentIndex(0);
+    QCOMPARE(d->findChild<QLineEdit *>("mapAttribution")->text(), QString("© OpenStreetMap contributors"));
+    QTest::mouseClick(d->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok), Qt::LeftButton);
+    QCOMPARE(canvas->baseMap(), QString("raster"));
+    QTRY_VERIFY(!server.requests.isEmpty());
+    QVERIFY(window.findChild<QAction *>("PULDNMP027")->isEnabled());
+    // An explicit tile URL always overrides saved offline selection.
+    QSettings().setValue("map/baseMap", "world");
+    restoredOptions.tileUrlExplicit = true;
+    MainWindow explicitRaster(restoredOptions);
+    QCOMPARE(explicitRaster.findChild<MapWidget *>()->baseMap(), QString("raster"));
+  }
+
+  void naturalEarthLayersAndRendering()
+  {
+    if (!xastir_has_shapefile_support()) QSKIP("Shapelib unavailable");
+    TileServer server; QTemporaryDir cache;
+    ApplicationOptions options; options.center = {-34.6,-58.4}; options.zoom = 4;
+    options.tiles = {server.urlTemplate(), cache.path()};
+    MainWindow window(options);
+    auto *canvas = window.findChild<MapWidget *>();
+    window.findChild<QAction *>("PULDNMP001")->trigger();
+    auto *d = window.findChild<QDialog *>("mapChooserDialog");
+    d->findChild<QComboBox *>("mapSource")->setCurrentIndex(2);
+    QTest::mouseClick(d->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok), Qt::LeftButton);
+    window.show(); QTRY_VERIFY_WITH_TIMEOUT(canvas->vectorMapReady(), 10000);
+    auto *vectors = canvas->findChild<VectorMaps *>();
+    QCOMPARE(vectors->scenes_.value("naturalearth")->shapes.size(), 2559); // One bundled feature is SHPT_NULL.
+    const auto filled = canvas->grab().toImage();
+    const auto renderDirectory = qEnvironmentVariable("XASTIR_VECTOR_TEST_RENDER_DIR");
+    if (!renderDirectory.isEmpty()) filled.save(renderDirectory + "/naturalearth.png");
+    window.findChild<QAction *>("PULDNMP009")->trigger(); QVERIFY(canvas->grab().toImage() != filled);
+    canvas->setVectorLayers(0); const auto blank = canvas->grab().toImage();
+    canvas->setVectorLayers(1); QVERIFY(canvas->grab().toImage() != blank);
+    QVERIFY(server.requests.isEmpty());
+    for (const auto &view : {map::Coordinate{0,179.9}, map::Coordinate{0,-179.9}, map::Coordinate{-70,0}}) {
+      canvas->setVectorLayers(15); canvas->setView(view, 2); canvas->grab();
+      if (!renderDirectory.isEmpty() && view.latitude == -70) {
+        canvas->setVectorFills(true); canvas->grab().save(renderDirectory + "/antarctica.png");
+      }
+    }
+  }
+
+  void vectorMultipartHolesAndDateline()
+  {
+    if (!xastir_has_shapefile_support()) QSKIP("Shapelib unavailable");
+    VectorMaps maps;
+    QString error;
+    auto polygon = VectorMaps::readShapefile(QString(VECTOR_DATA_DIR "/tests/core/fixtures/polygon_hole.shp"), 0, &error);
+    QVERIFY2(polygon, qPrintable(error)); maps.scenes_.insert("fixture", polygon);
+    QImage image(256,256,QImage::Format_RGB32); image.fill(Qt::white);
+    const auto origin = map::toWorld({0,0},3) - QPointF(128,128);
+    { QPainter painter(&image); maps.draw(painter,"fixture",origin,3,image.size(),15,true,false); }
+    // Hole is water/background, surrounding polygon is land.
+    QCOMPARE(image.pixelColor(128,128), QColor(Qt::white));
+    QVERIFY(image.pixelColor(200,128) != QColor(Qt::white));
+    auto line = VectorMaps::readShapefile(QString(VECTOR_DATA_DIR "/tests/core/fixtures/multipart_line.shp"), 1, &error);
+    QVERIFY2(line, qPrintable(error)); maps.scenes_["fixture"] = line;
+    image.fill(Qt::white);
+    { QPainter painter(&image); maps.draw(painter,"fixture",origin,3,image.size(),15,false,false); }
+    QCOMPARE(image.pixelColor(128,128), QColor(Qt::white)); // No line between separate parts.
+    QVERIFY(image.pixelColor(43,128) != QColor(Qt::white));
+    auto seam = VectorMaps::readShapefile(QString(VECTOR_DATA_DIR "/tests/core/fixtures/dateline_line.shp"), 1, &error);
+    QVERIFY2(seam, qPrintable(error));
+    QVERIFY(seam->shapes[0].path.boundingRect().width() < 2);
+    maps.scenes_["fixture"] = seam; image.fill(Qt::white);
+    { QPainter painter(&image); maps.draw(painter,"fixture",map::toWorld({0,180},3)-QPointF(128,128),3,image.size(),15,false,false); }
+    QVERIFY(image.pixelColor(128,128) != QColor(Qt::white));
   }
 
   void mapBorderIsLabeledViewportFrame_data()

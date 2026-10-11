@@ -11,6 +11,7 @@
 
 class QLabel;
 class TileSource;
+class VectorMaps;
 class StationModel;
 class QPainter;
 
@@ -29,12 +30,20 @@ public:
   const What_to_display &displayOptions() const { return display_; }
   void setSelections(const Selections &value) { selections_ = value; update(); }
   void setDisplayOptions(const What_to_display &value) { display_ = value; update(); }
+  QString baseMap() const { return baseMap_; }
+  void setBaseMap(const QString &source);
+  bool vectorMapReady() const;
+  void setVectorLayers(int mask) { vectorLayers_ = mask & 15; update(); }
+  int vectorLayers() const { return vectorLayers_; }
+  void setVectorFills(bool enabled) { vectorFills_ = enabled; update(); }
+  void setVectorLabels(bool enabled) { vectorLabels_ = enabled; update(); }
   bool mapsEnabled() const { return mapsEnabled_; }
   void setMapsEnabled(bool enabled);
   void setMapGrid(bool enabled);
   void setMapBorder(bool enabled);
   void setMapBackground(QColor color) { background_ = color; update(); }
   QString mapAttribution() const;
+  QString rasterAttribution() const { return baseMap_ == "raster" ? mapAttribution() : rasterAttribution_; }
   void setMapAttribution(const QString &text);
   void setMapGamma(double gamma);
   void setMapIntensity(double intensity) { intensity_ = intensity; update(); }
@@ -46,6 +55,8 @@ signals:
   void stationClicked(const QString &name);
   void viewChanged();
   void manuallyPanned();
+  void baseMapChanged();
+  void mapStatusChanged(const QString &message);
 
 protected:
   void paintEvent(QPaintEvent *event) override;
@@ -73,6 +84,10 @@ private:
   void drawStationOverlays(QPainter &painter, const DataRow &row);
   void drawRange(QPainter &painter, map::Coordinate center, double meters, double start = 0, double span = 360);
 
+  VectorMaps *vectors_;
+  QString baseMap_ = "raster", rasterAttribution_;
+  int vectorLayers_ = 15;
+  bool vectorFills_ = true, vectorLabels_ = true;
   bool mapsEnabled_ = true, grid_ = false, border_ = false;
   QColor background_{"#e8edf0"};
   double intensity_ = 1, gamma_ = 1;

@@ -20,6 +20,7 @@ struct ApplicationOptions
   map::Coordinate center{20.0, 0.0};
   int zoom = 3;
   TileSourceOptions tiles;
+  bool tileUrlExplicit = false;
   XastirConfig config;
   bool historyEnabled = false;
   HistoryOptions history;

@@ -4,6 +4,10 @@
 #include "tile_source.h"
 #include "station_navigator.h"
 #include "aprs_position.h"
+#include "vector_map.h"
+#include <QComboBox>
+#include <QCheckBox>
+#include <QStandardItemModel>
 #include <QAction>
 #include <QActionGroup>
 #include <QDialog>
@@ -34,11 +38,12 @@ QDialog *dialog(QMainWindow *window, const QString &title, const char *name)
 }
 void show(QDialog *dialog) { dialog->show(); dialog->raise(); }
 }
-MapMenu::MapMenu(QMainWindow *window, MapWidget *map, TileSource *tiles, StationNavigator *navigator)
+MapMenu::MapMenu(QMainWindow *window, MapWidget *map, TileSource *tiles, StationNavigator *navigator, bool restoreSelection)
   : QObject(window), window_(window), map_(map), tiles_(tiles), navigator_(navigator)
 {
   // Explicit command-line tile sources take precedence over saved selection.
-  if (tiles_->urlTemplate() == TileSourceOptions{}.urlTemplate) {
+  restoreSelection = restoreSelection && tiles_->urlTemplate() == TileSourceOptions{}.urlTemplate;
+  if (restoreSelection) {
     const QString saved = QSettings().value("map/tileUrl").toString();
     if (!saved.isEmpty()) {
       tiles_->setUrlTemplate(saved);
@@ -69,6 +74,9 @@ MapMenu::MapMenu(QMainWindow *window, MapWidget *map, TileSource *tiles, Station
       apply(action->isChecked()); QSettings().setValue("map/" + key, action->isChecked());
     });
   };
+  toggle("PULDNMP010", "vectorLabels", true, [map](bool enabled) { map->setVectorLabels(enabled); });
+  toggle("PULDNMP009", "vectorFills", true, [map](bool enabled) { map->setVectorFills(enabled); });
+  map->setVectorLayers(QSettings().value("map/vectorLayers", 15).toInt());
   toggle("PULDNMP013", "disabled", false, [map](bool value) { map->setMapsEnabled(!value); });
   auto *border = window_->findChild<QAction *>("PULDNMP031");
   toggle("PULDNMP003", "grid", false, [map, border](bool value) {
@@ -99,7 +107,7 @@ MapMenu::MapMenu(QMainWindow *window, MapWidget *map, TileSource *tiles, Station
   bind("PULDNMP028", [tiles] { tiles->reload(true); });
   // These controls depend on legacy map backends absent from the XYZ renderer.
   for (const char *id : {"PULDNMP014", "POPUPMA046", "POPUPMA047", "POPUPMA048", "POPUPMA050", "POPUPMA049", "POPUPMA051",
-      "PULDNMP016", "PULDNMP002", "PULDNMP021", "PULDNMP004", "PULDNMP010", "PULDNMP009", "PULDNMP007",
+      "PULDNMP016", "PULDNMP002", "PULDNMP021", "PULDNMP004", "PULDNMP007",
       "PULDNMP030", "PULDNMP032", "PULDNMP022", "PULDNMP023", "PULDNMP024"}) {
     auto *action = window_->findChild<QAction *>(id);
     action->setEnabled(false); action->setProperty("unavailable", true);
@@ -117,6 +125,20 @@ MapMenu::MapMenu(QMainWindow *window, MapWidget *map, TileSource *tiles, Station
       QSettings().value("map/gamma", 1.0).toDouble(), 0.1, 5.0, 2, &ok);
     if (ok) { map_->setMapGamma(value); QSettings().setValue("map/gamma", value); }
   });
+  auto updateSourceActions = [window, map] {
+    const bool raster = map->baseMap() == "raster";
+    for (const char *id : {"PULDNMP027", "PULDNMP028", "GAMMA001"}) window->findChild<QAction *>(id)->setEnabled(raster);
+    for (const char *id : {"PULDNMP010", "PULDNMP009"}) window->findChild<QAction *>(id)->setEnabled(map->baseMap() == "naturalearth");
+  };
+  connect(map, &MapWidget::baseMapChanged, this, updateSourceActions);
+  // Explicit tile URLs select raster for this run; otherwise restore offline choice.
+  if (restoreSelection) {
+    QString source = QSettings().value("map/baseMap", "raster").toString();
+    if (source == "naturalearth" && !xastir_has_shapefile_support()) source = "world";
+    map->setBaseMap(source);
+  }
+  updateSourceActions();
+
 }
 
 void MapMenu::coordinates(bool calculator)
@@ -197,23 +219,57 @@ void MapMenu::chooseMap()
 {
   auto *d = dialog(window_, tr("Map Chooser"), "mapChooserDialog");
   auto *form = new QFormLayout(d);
+  auto *source = new QComboBox(d); source->setObjectName("mapSource");
+  source->addItem(tr("Online / cached XYZ tiles"), "raster");
+  source->addItem(tr("Offline world map (bundled)"), "world");
+  source->addItem(tr("Offline Natural Earth (bundled)"), "naturalearth");
+  if (!xastir_has_shapefile_support()) {
+    auto *model = qobject_cast<QStandardItemModel *>(source->model());
+    model->item(2)->setEnabled(false);
+    source->setItemText(2, tr("Offline Natural Earth (requires Shapelib)"));
+  }
+  source->setCurrentIndex(qMax(0, source->findData(map_->baseMap())));
+  form->addRow(tr("Base map"), source);
+  QList<QCheckBox *> layers;
+  const QStringList layerNames = {tr("Countries"), tr("Coastlines"), tr("Lakes"), tr("Rivers")};
+  for (int i = 0; i < 4; ++i) {
+    auto *layer = new QCheckBox(layerNames[i], d); layer->setObjectName(QString("vectorLayer%1").arg(i));
+    layer->setChecked(map_->vectorLayers() & (1 << i)); layers << layer; form->addRow(layer);
+  }
   auto *url = new QLineEdit(tiles_->urlTemplate(), d); url->setObjectName("mapTileUrl"); form->addRow(tr("XYZ tile URL"), url);
-  auto *credit = new QLineEdit(map_->mapAttribution(), d); credit->setObjectName("mapAttribution"); form->addRow(tr("Attribution"), credit);
+  auto *credit = new QLineEdit(map_->rasterAttribution(), d); credit->setObjectName("mapAttribution"); form->addRow(tr("Attribution"), credit);
   auto *reset = new QPushButton(tr("Use OpenStreetMap"), d); form->addRow(reset);
-  connect(reset, &QPushButton::clicked, d, [url, credit] {
+  connect(reset, &QPushButton::clicked, d, [source, url, credit] {
+    source->setCurrentIndex(0);
     url->setText("https://tile.openstreetmap.org/{z}/{x}/{y}.png"); credit->setText("© OpenStreetMap contributors");
   });
   form->addRow(new QLabel(tr("256 × 256 PNG tiles. URL must include {z}, {x}, {y}. Local file URLs are supported."), d));
   auto *error = new QLabel(d); error->setObjectName("mapChooserError"); form->addRow(error);
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, d); form->addRow(buttons);
   connect(buttons, &QDialogButtonBox::rejected, d, &QDialog::reject);
-  connect(buttons, &QDialogButtonBox::accepted, d, [this, d, url, credit, error] {
+  auto updateFields = [source, layers, url, credit, reset] {
+    const bool raster = source->currentData().toString() == "raster";
+    url->setEnabled(raster); credit->setEnabled(raster); reset->setEnabled(raster);
+    for (auto *layer : layers) layer->setEnabled(source->currentData().toString() == "naturalearth");
+  };
+  connect(source, &QComboBox::currentIndexChanged, d, updateFields); updateFields();
+  connect(buttons, &QDialogButtonBox::accepted, d, [this, d, source, layers, url, credit, error] {
+    const QString base = source->currentData().toString();
+    int mask = 0;
+    for (int i = 0; i < layers.size(); ++i) if (layers[i]->isChecked()) mask |= 1 << i;
+    if (base == "naturalearth" && !mask) { error->setText(tr("Select at least one vector layer.")); return; }
+    if (base != "raster") {
+      map_->setVectorLayers(mask); map_->setBaseMap(base);
+      QSettings().setValue("map/baseMap", base); QSettings().setValue("map/vectorLayers", mask);
+      d->accept(); return;
+    }
     const QString text = url->text().trimmed(); const QUrl parsed(text);
     if (!parsed.isValid() || !(parsed.scheme() == "https" || parsed.scheme() == "http" || parsed.isLocalFile()) ||
         !text.contains("{z}") || !text.contains("{x}") || !text.contains("{y}") || credit->text().trimmed().isEmpty()) {
       error->setText(tr("Enter a valid XYZ URL and attribution.")); return;
     }
-    tiles_->setUrlTemplate(text); map_->setMapAttribution(credit->text().trimmed());
+    map_->setBaseMap("raster"); tiles_->setUrlTemplate(text); map_->setMapAttribution(credit->text().trimmed());
+    QSettings().setValue("map/baseMap", "raster");
     QSettings().setValue("map/tileUrl", text); QSettings().setValue("map/attribution", credit->text().trimmed());
     d->accept();
   });

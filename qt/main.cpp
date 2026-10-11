@@ -44,6 +44,7 @@ int main(int argc, char *argv[])
   options.zoom = parser.value("zoom").toInt(&zoomOk);
   if (parser.isSet("stations") && !parser.isSet("zoom"))
     options.zoom = 12;
+  options.tileUrlExplicit = parser.isSet("tile-url");
   options.tiles.urlTemplate = parser.value("tile-url");
   options.tiles.cacheDirectory = parser.value("cache-dir");
   QString error;

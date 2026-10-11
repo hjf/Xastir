@@ -4,6 +4,7 @@ add_library(xastir_qt_ui STATIC
   tile_source.cpp tile_source.h
   map_widget.cpp map_widget.h
   map_menu.cpp map_menu.h
+  vector_maps.cpp vector_maps.h
   main_window.cpp main_window.h
   legacy_menus.cpp legacy_menus.h
   message_service.cpp message_service.h
@@ -33,6 +34,15 @@ qt_add_resources(xastir_qt_ui legacy_menus
   BASE "${CMAKE_CURRENT_SOURCE_DIR}"
   FILES "${CMAKE_CURRENT_SOURCE_DIR}/legacy_menus.json"
 )
+set(offline_map_files "${PROJECT_SOURCE_DIR}/worldhi.map" "${PROJECT_SOURCE_DIR}/NaturalEarthVector/LICENSE.md")
+if(SHAPELIB_INCLUDE_DIR AND SHAPELIB_LIBRARY AND XASTIR_WITH_SHAPELIB)
+  foreach(layer IN ITEMS admin_0_countries_lakes coastline lakes rivers_lake_centerlines)
+    foreach(extension IN ITEMS shp shx dbf)
+      list(APPEND offline_map_files "${PROJECT_SOURCE_DIR}/NaturalEarthVector/ne_50m_${layer}.${extension}")
+    endforeach()
+  endforeach()
+endif()
+qt_add_resources(xastir_qt_ui offline_maps PREFIX "/maps" BASE "${PROJECT_SOURCE_DIR}" FILES ${offline_map_files})
 target_include_directories(xastir_qt_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(xastir_qt_ui PUBLIC Qt6::Widgets Qt6::Network SQLite::SQLite3 xastir_core)
 if(MSVC)
@@ -73,6 +83,7 @@ if(BUILD_TESTING)
   configure_file(examples/stations.json examples/stations.json COPYONLY)
   target_compile_definitions(test_qt_map PRIVATE
     STATION_EXAMPLE_FILE="examples/stations.json"
+    VECTOR_DATA_DIR="${PROJECT_SOURCE_DIR}"
   )
   qt_add_executable(test_agwpe tests/test_agwpe.cpp)
   target_link_libraries(test_agwpe PRIVATE xastir_qt_ui Qt6::Test)

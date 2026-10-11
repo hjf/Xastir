@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "map_widget.h"
 #include "tile_source.h"
+#include "vector_maps.h"
 #include "station_model.h"
 #include "aprs_position.h"
 
@@ -24,6 +25,11 @@ MapWidget::MapWidget(TileSource *tiles, map::Coordinate center, int zoom, QWidge
   : QWidget(parent), tiles_(tiles), attribution_(new QLabel(this)),
     zoom_(std::clamp(zoom, map::MinZoom, map::MaxZoom))
 {
+  vectors_ = new VectorMaps(this);
+  connect(vectors_, &VectorMaps::changed, this, qOverload<>(&MapWidget::update));
+  connect(vectors_, &VectorMaps::statusChanged, this, [this](const QString &source, const QString &message) {
+    if (baseMap_ == source) emit mapStatusChanged(message);
+  });
   auto *ageTimer = new QTimer(this);
   ageTimer->setInterval(10000);
   connect(ageTimer, &QTimer::timeout, this, qOverload<>(&MapWidget::update)); ageTimer->start();
@@ -39,6 +45,7 @@ MapWidget::MapWidget(TileSource *tiles, map::Coordinate center, int zoom, QWidge
   attribution_->setTextInteractionFlags(Qt::LinksAccessibleByMouse | Qt::LinksAccessibleByKeyboard);
   attribution_->setStyleSheet(QStringLiteral("QLabel { background: white; color: #202830; padding: 5px 8px; }"));
   attribution_->adjustSize();
+  rasterAttribution_ = mapAttribution();
   tileTimer_.setSingleShot(true);
   tileTimer_.setInterval(75);
   connect(&tileTimer_, &QTimer::timeout, this, &MapWidget::refreshTiles);
@@ -94,7 +101,7 @@ void MapWidget::setMapsEnabled(bool enabled)
 
 void MapWidget::refreshTiles()
 {
-  if (!isVisible() || !mapsEnabled_)
+  if (!isVisible() || !mapsEnabled_ || baseMap_ != "raster")
     return;
   const QPointF origin = viewportOrigin();
   const int firstX = int(std::floor(origin.x() / map::TileSize));
@@ -120,7 +127,7 @@ void MapWidget::paintEvent(QPaintEvent *)
   const int lastX = int(std::floor((origin.x() + width() - 1) / map::TileSize));
   const int lastY = std::min((1 << zoom_) - 1,
     int(std::floor((origin.y() + height() - 1) / map::TileSize)));
-  if (mapsEnabled_) for (int y = firstY; y <= lastY; ++y)
+  if (mapsEnabled_ && baseMap_ == "raster") for (int y = firstY; y <= lastY; ++y)
   {
     for (int x = firstX; x <= lastX; ++x)
     {
@@ -156,9 +163,16 @@ void MapWidget::paintEvent(QPaintEvent *)
       }
     }
   }
+  const int frame = mapFrameWidth();
+  if (mapsEnabled_ && baseMap_ != "raster") {
+    const QRect hintBounds = painter.fontMetrics().boundingRect(tr("Drag to pan · Scroll or +/− to zoom")).adjusted(-10,-7,10,7);
+    QRegion reserved(attribution_->geometry());
+    reserved += QRect(frame + 12, frame + 12, hintBounds.width(), hintBounds.height());
+    if (frame) reserved += QRegion(rect()) - QRegion(rect().adjusted(frame,frame,-frame,-frame));
+    vectors_->draw(painter, baseMap_, origin, zoom_, size(), vectorLayers_, vectorFills_, vectorLabels_, reserved);
+  }
   painter.setOpacity(1);
   painter.save();
-  const int frame = mapFrameWidth();
   if (frame) painter.setClipRect(rect().adjusted(frame, frame, -frame, -frame));
   drawStations(painter);
   painter.restore();
@@ -683,3 +697,20 @@ void MapWidget::drawGrid(QPainter &painter)
   }
   painter.restore();
 }
+
+void MapWidget::setBaseMap(const QString &source)
+{
+  if (source != "raster" && source != "world" && source != "naturalearth") return;
+  if (baseMap_ == "raster") rasterAttribution_ = mapAttribution();
+  baseMap_ = source;
+  emit baseMapChanged();
+  if (source == "raster") { setMapAttribution(rasterAttribution_); refreshTiles(); }
+  else {
+    tileTimer_.stop(); tiles_->setVisibleTiles({});
+    setMapAttribution(source == "world" ? "Xastir world map (WU2Z)" : "Made with Natural Earth");
+    vectors_->request(source);
+    if (vectors_->ready(source)) emit mapStatusChanged(tr("Offline vector map ready"));
+  }
+  update();
+}
+bool MapWidget::vectorMapReady() const { return vectors_->ready(baseMap_); }

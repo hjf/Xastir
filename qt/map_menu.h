@@ -9,7 +9,7 @@ class MapMenu : public QObject
 {
   Q_OBJECT
 public:
-  MapMenu(QMainWindow *window, MapWidget *map, TileSource *tiles, StationNavigator *navigator);
+  MapMenu(QMainWindow *window, MapWidget *map, TileSource *tiles, StationNavigator *navigator, bool restoreSelection = true);
 private:
   void coordinates(bool calculator);
   void bookmarks();

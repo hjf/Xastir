@@ -44,7 +44,7 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
 
   createLegacyMenus(this);
   auto *navigator = new StationNavigator(this, stations_, mapWidget_);
-  new MapMenu(this, mapWidget_, tiles, navigator);
+  new MapMenu(this, mapWidget_, tiles, navigator, !options.tileUrlExplicit);
   stationMenu_ = new StationMenu(this, stations_, mapWidget_, options.config.callsign, localStation_);
   auto *following = new QLabel(this);
   statusBar()->addPermanentWidget(following);
@@ -71,8 +71,9 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   updateCount();
   statusBar()->addPermanentWidget(position);
   auto *status = statusBar();
-  connect(tiles, &TileSource::statusChanged, status, [status](const QString &message) {
-    status->showMessage(message);
+  connect(mapWidget, &MapWidget::mapStatusChanged, status, [status](const QString &message) { status->showMessage(message); });
+  connect(tiles, &TileSource::statusChanged, status, [this, status](const QString &message) {
+    if (mapWidget_->baseMap() == "raster") status->showMessage(message);
   });
   auto updatePosition = [mapWidget, position] {
     const auto center = mapWidget->centerCoordinate();
