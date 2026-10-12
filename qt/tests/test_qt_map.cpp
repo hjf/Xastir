@@ -230,6 +230,13 @@ private slots:
     QTest::keyRelease(canvas, Qt::Key_Alt);
     QTest::mouseMove(canvas, canvas->rect().center() + QPoint(30, 30));
     QTRY_VERIFY(window.menuBar()->isHidden());
+    QTest::keyPress(canvas, Qt::Key_Alt);
+    menu->popup(window.menuBar()->mapToGlobal(QPoint(0, window.menuBar()->height())));
+    QTRY_VERIFY(menu->isVisible());
+    QTest::keyRelease(menu, Qt::Key_Alt);
+    menu->close();
+    QTest::mouseMove(canvas, canvas->rect().center() + QPoint(40, 40));
+    QTRY_VERIFY(window.menuBar()->isHidden());
     QTest::keyClick(canvas, Qt::Key_F11);
     QTRY_VERIFY(!window.isFullScreen());
     QVERIFY(window.menuBar()->isVisible()); QVERIFY(window.statusBar()->isVisible());

@@ -170,7 +170,7 @@ void MainWindow::revealFullscreenBars(bool reveal)
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
   const auto *widget = qobject_cast<QWidget *>(watched);
-  if (!isFullScreen() || !widget || widget->window() != this)
+  if (!isFullScreen() || !widget || (widget->window() != this && !isAncestorOf(widget)))
     return QMainWindow::eventFilter(watched, event);
   if (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) {
     const auto *key = static_cast<QKeyEvent *>(event);
@@ -178,7 +178,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
       fullscreenAltHeld_ = event->type() == QEvent::KeyPress;
       if (fullscreenAltHeld_) revealFullscreenBars(true);
     }
-  } else if (event->type() == QEvent::MouseMove) {
+  } else if (event->type() == QEvent::MouseMove && widget->window() == this) {
     const auto *mouse = static_cast<QMouseEvent *>(event);
     const int y = mapFromGlobal(mouse->globalPosition().toPoint()).y();
     if (y <= 1 && y >= 0) revealFullscreenBars(true);
