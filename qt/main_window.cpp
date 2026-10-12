@@ -23,6 +23,7 @@
 #include <QStatusBar>
 #include <QAction>
 #include <QMenuBar>
+#include <QMenu>
 #include <QWindowStateChangeEvent>
 #include <QApplication>
 #include <QKeyEvent>
@@ -170,13 +171,40 @@ void MainWindow::revealFullscreenBars(bool reveal)
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
   const auto *widget = qobject_cast<QWidget *>(watched);
-  if (!isFullScreen() || !widget || (widget->window() != this && !isAncestorOf(widget)))
+  if (!isFullScreen() || !widget)
     return QMainWindow::eventFilter(watched, event);
+  // Popup menus are separate windows but still owned by this main window.
+  bool belongsToWindow = widget->window() == this;
+  for (const QObject *owner = widget->parent(); !belongsToWindow && owner; owner = owner->parent())
+    belongsToWindow = owner == this;
+  if (!belongsToWindow) return QMainWindow::eventFilter(watched, event);
+  if (widget->window() != this && !qobject_cast<QMenu *>(widget->window()))
+    return QMainWindow::eventFilter(watched, event);
+  if ((event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) &&
+      static_cast<QKeyEvent *>(event)->key() == Qt::Key_Escape &&
+      menuBar()->hasFocus() && !QApplication::activePopupWidget()) {
+    event->accept();
+    if (event->type() == QEvent::KeyPress) {
+      menuBar()->setActiveAction(nullptr);
+      mapWidget_->setFocus();
+      revealFullscreenBars(false);
+    }
+    return true;
+  }
   if (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) {
     const auto *key = static_cast<QKeyEvent *>(event);
     if (key->key() == Qt::Key_Alt) {
       fullscreenAltHeld_ = event->type() == QEvent::KeyPress;
-      if (fullscreenAltHeld_) revealFullscreenBars(true);
+      if (fullscreenAltHeld_) {
+        revealFullscreenBars(true);
+        if (!QApplication::activePopupWidget()) {
+          menuBar()->setFocus(Qt::MenuBarFocusReason);
+          if (!menuBar()->activeAction() && !menuBar()->actions().isEmpty())
+            menuBar()->setActiveAction(menuBar()->actions().first());
+        }
+      }
+      // Keep keyboard menu navigation active after releasing Alt.
+      return true;
     }
   } else if (event->type() == QEvent::MouseMove && widget->window() == this) {
     const auto *mouse = static_cast<QMouseEvent *>(event);

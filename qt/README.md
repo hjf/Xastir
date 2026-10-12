@@ -551,7 +551,8 @@ Fullscreen requested by the desktop compositor uses the same presentation.
 Pass `--fullscreen` to start in this mode directly.
 In fullscreen, touching the top edge with the mouse or pressing Alt reveals the
 menu and status bars. Moving back over the map hides them, except while a menu
-is open or Alt is held. Esc also exits fullscreen.
+is open or Alt is held. Alt also focuses the menu for arrow-key navigation.
+Esc dismisses an active menu first; otherwise it exits fullscreen.
 
 
 ## Offline vector maps

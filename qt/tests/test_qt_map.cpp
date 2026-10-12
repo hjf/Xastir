@@ -220,7 +220,9 @@ private slots:
     QTRY_VERIFY(menu->isVisible());
     QTest::mouseMove(canvas, canvas->rect().center());
     QVERIFY(window.menuBar()->isVisible());
-    menu->close();
+    QTest::keyClick(menu, Qt::Key_Escape);
+    QTRY_VERIFY(!menu->isVisible());
+    QVERIFY(window.isFullScreen());
     QTest::mouseMove(canvas, canvas->rect().center() + QPoint(10, 10));
     QTRY_VERIFY(window.menuBar()->isHidden()); QVERIFY(window.statusBar()->isHidden());
     QTest::keyPress(canvas, Qt::Key_Alt);
@@ -228,13 +230,34 @@ private slots:
     QTest::mouseMove(canvas, canvas->rect().center() + QPoint(20, 20));
     QVERIFY(window.menuBar()->isVisible());
     QTest::keyRelease(canvas, Qt::Key_Alt);
+    if (auto *popup = QApplication::activePopupWidget()) {
+      QTest::keyClick(popup, Qt::Key_Escape);
+      QTRY_VERIFY(!QApplication::activePopupWidget());
+      QVERIFY(window.isFullScreen());
+    }
+    window.activateWindow(); canvas->setFocus();
+    QTRY_VERIFY(window.isActiveWindow());
     QTest::mouseMove(canvas, canvas->rect().center() + QPoint(30, 30));
     QTRY_VERIFY(window.menuBar()->isHidden());
+    QTest::keyClick(canvas, Qt::Key_Alt);
+    QTRY_VERIFY(window.menuBar()->hasFocus() || QApplication::activePopupWidget());
+    if (!QApplication::activePopupWidget()) QTest::keyClick(window.menuBar(), Qt::Key_Down);
+    QTRY_VERIFY(QApplication::activePopupWidget());
+    QTest::keyClick(QApplication::activePopupWidget(), Qt::Key_Down);
+    QTest::keyClick(QApplication::activePopupWidget(), Qt::Key_Escape);
+    QTRY_VERIFY(!QApplication::activePopupWidget());
+    QVERIFY(window.isFullScreen());
+    // Escape from keyboard navigation dismisses the bar before fullscreen.
+    window.menuBar()->setFocus();
+    QTest::keyClick(window.menuBar(), Qt::Key_Escape);
+    QVERIFY(window.isFullScreen()); QVERIFY(window.menuBar()->isHidden());
     QTest::keyPress(canvas, Qt::Key_Alt);
     menu->popup(window.menuBar()->mapToGlobal(QPoint(0, window.menuBar()->height())));
     QTRY_VERIFY(menu->isVisible());
     QTest::keyRelease(menu, Qt::Key_Alt);
     menu->close();
+    window.activateWindow(); canvas->setFocus();
+    QTRY_VERIFY(window.isActiveWindow());
     QTest::mouseMove(canvas, canvas->rect().center() + QPoint(40, 40));
     QTRY_VERIFY(window.menuBar()->isHidden());
     QTest::keyClick(canvas, Qt::Key_F11);
