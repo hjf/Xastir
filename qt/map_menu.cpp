@@ -47,6 +47,7 @@ MapMenu::MapMenu(QMainWindow *window, MapWidget *map, TileSource *tiles, Station
     const QString saved = QSettings().value("map/tileUrl").toString();
     if (!saved.isEmpty()) {
       TileAuthentication authentication;
+      authentication.key = QSettings().value("map/tileApiKey").toString();
       authentication.environment = QSettings().value("map/tileKeyEnvironment", "XASTIR_TILE_API_KEY").toString();
       authentication.header = QSettings().value("map/tileKeyHeader").toByteArray();
       authentication.prefix = QSettings().value("map/tileKeyPrefix").toByteArray();
@@ -252,7 +253,7 @@ void MapMenu::chooseMap()
     : currentAuthentication.header.toLower() == "authorization" && currentAuthentication.prefix == "Bearer " ? 3 : 2);
   form->addRow(tr("Authentication"), authentication);
   auto *key = new QLineEdit(currentAuthentication.key, d); key->setObjectName("tileApiKey"); key->setEchoMode(QLineEdit::Password);
-  key->setPlaceholderText(tr("Session only; leave blank to use the environment variable")); form->addRow(tr("API key"), key);
+  key->setPlaceholderText(tr("Leave blank to use the environment variable")); form->addRow(tr("API key"), key);
   auto *environment = new QLineEdit(currentAuthentication.environment, d); environment->setObjectName("tileKeyEnvironment");
   form->addRow(tr("Key environment variable"), environment);
   auto *header = new QLineEdit(currentAuthentication.header.isEmpty() ? "X-API-Key" : QString::fromLatin1(currentAuthentication.header), d);
@@ -263,7 +264,7 @@ void MapMenu::chooseMap()
     source->setCurrentIndex(0); authentication->setCurrentIndex(0); key->clear();
     url->setText("https://tile.openstreetmap.org/{z}/{x}/{y}.png"); credit->setText("© OpenStreetMap contributors");
   });
-  form->addRow(new QLabel(tr("Square 256, 512, or 1024-pixel PNG tiles. Use {api_key} in the URL path or query for URL authentication. Keys are not saved in settings."), d));
+  form->addRow(new QLabel(tr("Square 256, 512, or 1024-pixel PNG tiles. Use {api_key} in the URL path or query for URL authentication. API keys are saved in the configuration file."), d));
   auto *error = new QLabel(d); error->setObjectName("mapChooserError"); form->addRow(error);
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, d); form->addRow(buttons);
   connect(buttons, &QDialogButtonBox::rejected, d, &QDialog::reject);
@@ -315,6 +316,8 @@ void MapMenu::chooseMap()
         existing.header != credentials.header || existing.prefix != credentials.prefix)
       tiles_->configure(text, credentials);
     map_->setBaseMap("raster"); map_->setMapAttribution(credit->text().trimmed());
+    if (credentials.key.isEmpty()) QSettings().remove("map/tileApiKey");
+    else QSettings().setValue("map/tileApiKey", credentials.key);
     QSettings().setValue("map/tileKeyEnvironment", credentials.environment);
     QSettings().setValue("map/tileKeyHeader", credentials.header);
     QSettings().setValue("map/tileKeyPrefix", credentials.prefix);

@@ -590,10 +590,12 @@ or query rather than pasting the key into the URL field, for example:
 https://tiles.example/{z}/{x}/{y}.png?key={api_key}
 ```
 
-The API key field is masked and retained only for the current session. For
-restarts, set `XASTIR_TILE_API_KEY` before launching Xastir, or configure another
-environment variable name in Map Chooser. Only the URL template, authentication
-method, environment variable name, and attribution persist in ordinary settings.
+The API key field is masked and saved as plain text in the Qt configuration file
+alongside the URL template, authentication method, environment variable name,
+and attribution. Leave the key blank to use `XASTIR_TILE_API_KEY`, or configure
+another environment variable name in Map Chooser. A saved key takes precedence
+over the environment variable. Clearing the field removes the saved key;
+choosing Use OpenStreetMap also clears it when the dialog is accepted.
 Changing providers cancels pending requests and resets decoded tiles.
 
 Command-line examples (the environment variable supplies the actual key):

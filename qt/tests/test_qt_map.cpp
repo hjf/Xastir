@@ -1057,7 +1057,7 @@ private slots:
     QVERIFY(TileSource::validate("https://tile.example/{z}/{x}/{y}.png", invalid, &error));
   }
 
-  void keyedTilesChooserSessionAndRestoration()
+  void keyedTilesChooserPersistenceAndRestoration()
   {
     TileServer server; QTemporaryDir cache;
     ApplicationOptions options; options.tiles = {server.urlTemplate(),cache.path()};
@@ -1071,18 +1071,32 @@ private slots:
     dialog->findChild<QLineEdit *>("tileKeyEnvironment")->setText("XASTIR_TEST_CHOOSER_KEY");
     qunsetenv("XASTIR_TEST_CHOOSER_KEY"); QTest::mouseClick(ok,Qt::LeftButton);
     QVERIFY(dialog->isVisible()); QVERIFY(dialog->findChild<QLabel *>("mapChooserError")->text().contains("missing"));
-    key->setText("fixture-session-key"); QTest::mouseClick(ok,Qt::LeftButton);
+    key->setText("fixture-saved-key"); QTest::mouseClick(ok,Qt::LeftButton);
     window.show(); auto *tiles = window.findChild<TileSource *>();
-    QTRY_VERIFY(!server.requests.isEmpty()); QVERIFY(server.requests.first().contains("key=fixture-session-key"));
-    QCOMPARE(tiles->authentication().key, QString("fixture-session-key"));
+    QTRY_VERIFY(!server.requests.isEmpty()); QVERIFY(server.requests.first().contains("key=fixture-saved-key"));
+    QCOMPARE(tiles->authentication().key, QString("fixture-saved-key"));
     QSettings settings;
-    for (const auto &setting : settings.allKeys()) QVERIFY(!settings.value(setting).toString().contains("fixture-session-key"));
+    settings.sync();
+    QCOMPARE(settings.value("map/tileApiKey").toString(), QString("fixture-saved-key"));
+    QFile config(settings.fileName()); QVERIFY(config.open(QIODevice::ReadOnly));
+    QVERIFY(config.readAll().contains("fixture-saved-key"));
     qputenv("XASTIR_TEST_CHOOSER_KEY", "fixture-restored-key");
-    ApplicationOptions defaultOptions; defaultOptions.tiles.cacheDirectory = cache.path();
+    QTemporaryDir restoredCache;
+    ApplicationOptions defaultOptions; defaultOptions.tiles.cacheDirectory = restoredCache.path();
     MainWindow restored(defaultOptions);
     QCOMPARE(restored.findChild<TileSource *>()->urlTemplate(), server.urlTemplate()+"?key={api_key}");
-    QVERIFY(restored.findChild<TileSource *>()->authentication().key.isEmpty());
-    restored.show(); QTRY_VERIFY(server.requests.last().contains("key=fixture-restored-key"));
+    QCOMPARE(restored.findChild<TileSource *>()->authentication().key, QString("fixture-saved-key"));
+    const auto requestsBeforeRestart = server.requests.size();
+    restored.show(); QTRY_VERIFY(server.requests.size() > requestsBeforeRestart);
+    QVERIFY(server.requests.last().contains("key=fixture-saved-key"));
+    restored.findChild<QAction *>("PULDNMP001")->trigger();
+    auto *restoredDialog = restored.findChild<QDialog *>("mapChooserDialog"); QVERIFY(restoredDialog);
+    QCOMPARE(restoredDialog->findChild<QLineEdit *>("tileApiKey")->text(), QString("fixture-saved-key"));
+    restoredDialog->findChild<QLineEdit *>("tileApiKey")->clear();
+    auto *restoredOk = restoredDialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok);
+    QTest::mouseClick(restoredOk, Qt::LeftButton);
+    QVERIFY(!QSettings().contains("map/tileApiKey"));
+    QTRY_VERIFY(server.requests.last().contains("key=fixture-restored-key"));
     qunsetenv("XASTIR_TEST_CHOOSER_KEY");
   }
 
