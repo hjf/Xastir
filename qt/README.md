@@ -549,6 +549,9 @@ Press F11 to toggle fullscreen. Fullscreen hides the menu and status bars so the
 map fills the window; pressing F11 again restores the prior window state and bars.
 Fullscreen requested by the desktop compositor uses the same presentation.
 Pass `--fullscreen` to start in this mode directly.
+In fullscreen, touching the top edge with the mouse or pressing Alt reveals the
+menu and status bars. Moving back over the map hides them, except while a menu
+is open or Alt is held. Esc also exits fullscreen.
 
 
 ## Offline vector maps

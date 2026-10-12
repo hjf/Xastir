@@ -39,11 +39,14 @@ public:
 
 protected:
   void changeEvent(QEvent *event) override;
+  bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
   Qt::WindowStates previousWindowState_;
   bool menuWasVisible_ = true;
   bool statusWasVisible_ = true;
+  bool fullscreenAltHeld_ = false;
+  void revealFullscreenBars(bool reveal);
   HistoryStore *history_ = nullptr;
   void configureAgwpe(const XastirConfig &config);
   BeaconControl *beacons_ = nullptr;

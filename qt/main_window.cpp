@@ -24,6 +24,9 @@
 #include <QAction>
 #include <QMenuBar>
 #include <QWindowStateChangeEvent>
+#include <QApplication>
+#include <QKeyEvent>
+#include <QMouseEvent>
 
 MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   : QMainWindow(parent)
@@ -55,6 +58,18 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
     if (isFullScreen()) setWindowState(previousWindowState_);
     else showFullScreen();
   });
+  auto *exitFullscreen = new QAction(this);
+  exitFullscreen->setShortcut(QKeySequence(Qt::Key_Escape));
+  exitFullscreen->setAutoRepeat(false);
+  addAction(exitFullscreen);
+  connect(exitFullscreen, &QAction::triggered, this, [this] {
+    if (isFullScreen()) setWindowState(previousWindowState_);
+  });
+  setMouseTracking(true);
+  mapWidget_->setMouseTracking(true);
+  menuBar()->setMouseTracking(true);
+  statusBar()->setMouseTracking(true);
+  qApp->installEventFilter(this);
   auto *navigator = new StationNavigator(this, stations_, mapWidget_);
   new MapMenu(this, mapWidget_, tiles, navigator, !options.tileUrlExplicit);
   stationMenu_ = new StationMenu(this, stations_, mapWidget_, options.config.callsign, localStation_);
@@ -133,15 +148,50 @@ void MainWindow::changeEvent(QEvent *event)
   if (event->type() != QEvent::WindowStateChange) return;
   const auto oldState = static_cast<QWindowStateChangeEvent *>(event)->oldState();
   if (isFullScreen() && !(oldState & Qt::WindowFullScreen)) {
+    fullscreenAltHeld_ = false;
     previousWindowState_ = oldState & ~(Qt::WindowMinimized | Qt::WindowActive);
     menuWasVisible_ = !menuBar()->isHidden();
     statusWasVisible_ = !statusBar()->isHidden();
     menuBar()->hide();
     statusBar()->hide();
   } else if (!isFullScreen() && (oldState & Qt::WindowFullScreen)) {
+    fullscreenAltHeld_ = false;
     menuBar()->setVisible(menuWasVisible_);
     statusBar()->setVisible(statusWasVisible_);
   }
+}
+
+void MainWindow::revealFullscreenBars(bool reveal)
+{
+  menuBar()->setVisible(reveal);
+  statusBar()->setVisible(reveal);
+}
+
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+  const auto *widget = qobject_cast<QWidget *>(watched);
+  if (!isFullScreen() || !widget || widget->window() != this)
+    return QMainWindow::eventFilter(watched, event);
+  if (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) {
+    const auto *key = static_cast<QKeyEvent *>(event);
+    if (key->key() == Qt::Key_Alt) {
+      fullscreenAltHeld_ = event->type() == QEvent::KeyPress;
+      if (fullscreenAltHeld_) revealFullscreenBars(true);
+    }
+  } else if (event->type() == QEvent::MouseMove) {
+    const auto *mouse = static_cast<QMouseEvent *>(event);
+    const int y = mapFromGlobal(mouse->globalPosition().toPoint()).y();
+    if (y <= 1 && y >= 0) revealFullscreenBars(true);
+    else if (!menuBar()->isHidden() && !fullscreenAltHeld_ && !QApplication::activePopupWidget()) {
+      const bool overMenu = y < menuBar()->height();
+      const bool overStatus = y >= height() - statusBar()->height();
+      if (!overMenu && !overStatus) {
+        if (menuBar()->hasFocus()) mapWidget_->setFocus();
+        revealFullscreenBars(false);
+      }
+    }
+  }
+  return QMainWindow::eventFilter(watched, event);
 }
 
 bool MainWindow::loadStations(const QString &path, QString *error, bool centerOnStations)

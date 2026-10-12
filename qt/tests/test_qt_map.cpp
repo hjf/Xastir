@@ -209,6 +209,27 @@ private slots:
     QTRY_VERIFY(window.isFullScreen());
     QVERIFY(window.menuBar()->isHidden()); QVERIFY(window.statusBar()->isHidden());
     QTRY_COMPARE(canvas->geometry(), window.contentsRect());
+    QTest::mouseMove(canvas, QPoint(canvas->width() / 2, 0));
+    QTRY_VERIFY(window.menuBar()->isVisible());
+    QVERIFY(window.statusBar()->isVisible()); QVERIFY(window.isFullScreen());
+    QTest::mouseMove(window.menuBar(), QPoint(10, 3));
+    QVERIFY(window.menuBar()->isVisible());
+    // Keep the chrome available while using an open menu.
+    auto *menu = window.menuBar()->actions().first()->menu(); QVERIFY(menu);
+    menu->popup(window.menuBar()->mapToGlobal(QPoint(0, window.menuBar()->height())));
+    QTRY_VERIFY(menu->isVisible());
+    QTest::mouseMove(canvas, canvas->rect().center());
+    QVERIFY(window.menuBar()->isVisible());
+    menu->close();
+    QTest::mouseMove(canvas, canvas->rect().center() + QPoint(10, 10));
+    QTRY_VERIFY(window.menuBar()->isHidden()); QVERIFY(window.statusBar()->isHidden());
+    QTest::keyPress(canvas, Qt::Key_Alt);
+    QVERIFY(window.menuBar()->isVisible()); QVERIFY(window.statusBar()->isVisible());
+    QTest::mouseMove(canvas, canvas->rect().center() + QPoint(20, 20));
+    QVERIFY(window.menuBar()->isVisible());
+    QTest::keyRelease(canvas, Qt::Key_Alt);
+    QTest::mouseMove(canvas, canvas->rect().center() + QPoint(30, 30));
+    QTRY_VERIFY(window.menuBar()->isHidden());
     QTest::keyClick(canvas, Qt::Key_F11);
     QTRY_VERIFY(!window.isFullScreen());
     QVERIFY(window.menuBar()->isVisible()); QVERIFY(window.statusBar()->isVisible());
@@ -222,6 +243,11 @@ private slots:
     window.showFullScreen();
     QVERIFY(window.menuBar()->isHidden());
     window.showNormal();
+    QVERIFY(window.menuBar()->isVisible()); QVERIFY(window.statusBar()->isHidden());
+    window.showFullScreen();
+    canvas->setFocus();
+    QTest::keyClick(canvas, Qt::Key_Escape);
+    QTRY_VERIFY(!window.isFullScreen());
     QVERIFY(window.menuBar()->isVisible()); QVERIFY(window.statusBar()->isHidden());
   }
 
