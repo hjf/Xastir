@@ -47,7 +47,9 @@ class LabwcConfigurationTest(unittest.TestCase):
         qt = next(rule for rule in rules if rule.get('identifier') == 'xastir-qt')
         self.assertEqual(qt.get('type'), 'normal')
         self.assertEqual(qt.find('action').get('output'), 'HDMI-A-1')
-        self.assertEqual(qt.findall('action')[1].get('name'), 'ToggleFullscreen')
+        self.assertEqual(len(qt.findall('action')), 1)
+        launcher = (self.home / '.local/bin/xastir-qt').read_text()
+        self.assertIn('xastir-qt" --fullscreen "$@"', launcher)
 
     def test_malformed_autostart_leaves_configuration_untouched(self):
         self.autostart.write_text('#!/bin/sh\n' + configuration.BEGIN + '\nunfinished\n')

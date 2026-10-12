@@ -23,6 +23,7 @@ int main(int argc, char *argv[])
   parser.addHelpOption();
   parser.addVersionOption();
   parser.addOptions({
+    {"fullscreen", "Start fullscreen with the menu and status bars hidden (F11 to exit)."},
     {{"latitude", "lat"}, "Initial center latitude (−85.0511 to 85.0511).", "degrees", "20"},
     {{"longitude", "lon"}, "Initial center longitude (−180 to 180).", "degrees", "0"},
     {{"zoom", "z"}, "Initial zoom level (0–19).", "level", "3"},
@@ -117,6 +118,7 @@ int main(int argc, char *argv[])
       return 1;
     }
   }
-  window.show();
+  if (parser.isSet("fullscreen")) window.showFullScreen();
+  else window.show();
   return application.exec();
 }

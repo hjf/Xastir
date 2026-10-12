@@ -548,6 +548,7 @@ interactions. These changes were validated on Linux with offscreen tests.
 Press F11 to toggle fullscreen. Fullscreen hides the menu and status bars so the
 map fills the window; pressing F11 again restores the prior window state and bars.
 Fullscreen requested by the desktop compositor uses the same presentation.
+Pass `--fullscreen` to start in this mode directly.
 
 
 ## Offline vector maps
@@ -686,7 +687,8 @@ station/interface configuration stay on the destination.
 
 Deployment updates `~/.config/labwc/autostart`, preserving OpenHamClock and
 unrelated entries. A rule for the stable `xastir-qt` application ID moves the main
-window to the chosen output and toggles fullscreen on initial mapping. The
+window to the chosen output. The launcher passes `--fullscreen` so the application
+starts with the menu and status bars hidden; F11 restores them. The
 `normal` window-type match leaves dialogs usable. The old XDG
 `~/.config/autostart/xastir.desktop` entry is hidden to avoid a duplicate legacy
 startup. Changed configuration files get timestamped `.bak` copies beside them.

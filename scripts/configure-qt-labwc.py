@@ -61,7 +61,6 @@ def configure(home, output):
         if action.get('name') in ('MoveToOutput', 'ToggleFullscreen'):
             rule.remove(action)
     ET.SubElement(rule, 'action', name='MoveToOutput', output=output)
-    ET.SubElement(rule, 'action', name='ToggleFullscreen')
     ET.indent(root, space='    ')
     xml = '<?xml version="1.0"?>\n' + ET.tostring(root, encoding='unicode') + '\n'
 
@@ -108,7 +107,7 @@ if [ -f "$log_file" ] && [ "$(wc -c < "$log_file")" -gt 5242880 ]; then
     mv -f "$log_file" "$log_file.previous"
 fi
 exec flock -n "$XDG_RUNTIME_DIR/xastir-qt.lock" \\
-    "$HOME/.local/opt/xastir-qt/current/bin/xastir-qt" "$@" >> "$log_file" 2>&1
+    "$HOME/.local/opt/xastir-qt/current/bin/xastir-qt" --fullscreen "$@" >> "$log_file" 2>&1
 '''
     desktop = f'''[Desktop Entry]
 Type=Application
