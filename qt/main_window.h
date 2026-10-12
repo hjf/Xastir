@@ -37,7 +37,13 @@ public:
   MessageService *messageService() const { return messages_; }
   bool loadStations(const QString &path, QString *error = nullptr, bool centerOnStations = false);
 
+protected:
+  void changeEvent(QEvent *event) override;
+
 private:
+  Qt::WindowStates previousWindowState_;
+  bool menuWasVisible_ = true;
+  bool statusWasVisible_ = true;
   HistoryStore *history_ = nullptr;
   void configureAgwpe(const XastirConfig &config);
   BeaconControl *beacons_ = nullptr;

@@ -195,6 +195,36 @@ private slots:
     window.close();
   }
 
+  void fullscreenShortcutUsesEntireWindow()
+  {
+    TileServer server; QTemporaryDir cache;
+    ApplicationOptions options; options.tiles = {server.urlTemplate(), cache.path()};
+    MainWindow window(options);
+    window.show(); window.activateWindow();
+    auto *canvas = window.findChild<MapWidget *>(); QVERIFY(canvas);
+    canvas->setFocus();
+    QTRY_VERIFY(window.isActiveWindow());
+    QVERIFY(window.menuBar()->isVisible()); QVERIFY(window.statusBar()->isVisible());
+    QTest::keyClick(canvas, Qt::Key_F11);
+    QTRY_VERIFY(window.isFullScreen());
+    QVERIFY(window.menuBar()->isHidden()); QVERIFY(window.statusBar()->isHidden());
+    QTRY_COMPARE(canvas->geometry(), window.contentsRect());
+    QTest::keyClick(canvas, Qt::Key_F11);
+    QTRY_VERIFY(!window.isFullScreen());
+    QVERIFY(window.menuBar()->isVisible()); QVERIFY(window.statusBar()->isVisible());
+    window.showMaximized();
+    QTest::keyClick(canvas, Qt::Key_F11);
+    QTRY_VERIFY(window.isFullScreen());
+    QTest::keyClick(canvas, Qt::Key_F11);
+    QTRY_VERIFY(window.isMaximized());
+    // Compositor-requested fullscreen uses the same map-only presentation.
+    window.statusBar()->hide();
+    window.showFullScreen();
+    QVERIFY(window.menuBar()->isHidden());
+    window.showNormal();
+    QVERIFY(window.menuBar()->isVisible()); QVERIFY(window.statusBar()->isHidden());
+  }
+
   void receivedObjectsRenderUpdateAndDisappear()
   {
     TileServer server;

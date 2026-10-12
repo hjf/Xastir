@@ -545,6 +545,10 @@ input has not been migrated. The Motif Mouse Pointer Menu and fast-copy drawing
 switch are hidden; Qt provides direct drag, wheel, keyboard, and station-click
 interactions. These changes were validated on Linux with offscreen tests.
 
+Press F11 to toggle fullscreen. Fullscreen hides the menu and status bars so the
+map fills the window; pressing F11 again restores the prior window state and bars.
+Fullscreen requested by the desktop compositor uses the same presentation.
+
 
 ## Offline vector maps
 

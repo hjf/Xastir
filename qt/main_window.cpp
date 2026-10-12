@@ -21,6 +21,9 @@
 
 #include <QLabel>
 #include <QStatusBar>
+#include <QAction>
+#include <QMenuBar>
+#include <QWindowStateChangeEvent>
 
 MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   : QMainWindow(parent)
@@ -43,6 +46,15 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   setCentralWidget(mapWidget);
 
   createLegacyMenus(this);
+  auto *fullscreen = new QAction(tr("Toggle fullscreen"), this);
+  fullscreen->setObjectName("toggleFullscreen");
+  fullscreen->setShortcut(QKeySequence(Qt::Key_F11));
+  fullscreen->setAutoRepeat(false);
+  addAction(fullscreen);
+  connect(fullscreen, &QAction::triggered, this, [this] {
+    if (isFullScreen()) setWindowState(previousWindowState_);
+    else showFullScreen();
+  });
   auto *navigator = new StationNavigator(this, stations_, mapWidget_);
   new MapMenu(this, mapWidget_, tiles, navigator, !options.tileUrlExplicit);
   stationMenu_ = new StationMenu(this, stations_, mapWidget_, options.config.callsign, localStation_);
@@ -113,6 +125,23 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
     beacons_->configure(config);
   });
 
+}
+
+void MainWindow::changeEvent(QEvent *event)
+{
+  QMainWindow::changeEvent(event);
+  if (event->type() != QEvent::WindowStateChange) return;
+  const auto oldState = static_cast<QWindowStateChangeEvent *>(event)->oldState();
+  if (isFullScreen() && !(oldState & Qt::WindowFullScreen)) {
+    previousWindowState_ = oldState & ~(Qt::WindowMinimized | Qt::WindowActive);
+    menuWasVisible_ = !menuBar()->isHidden();
+    statusWasVisible_ = !statusBar()->isHidden();
+    menuBar()->hide();
+    statusBar()->hide();
+  } else if (!isFullScreen() && (oldState & Qt::WindowFullScreen)) {
+    menuBar()->setVisible(menuWasVisible_);
+    statusBar()->setVisible(statusWasVisible_);
+  }
 }
 
 bool MainWindow::loadStations(const QString &path, QString *error, bool centerOnStations)
