@@ -406,8 +406,6 @@ void MapWidget::drawStations(QPainter &painter)
   for (const auto &label : labels) {
     if (!label.bounds.isEmpty()) {
       stationHits_.append({label.name, label.bounds, label.point});
-      if (QLineF(label.anchor, label.point).length() >= 1)
-        painter.fillRect(label.bounds, QColor(255, 255, 255, 225));
       if (display_.symbol) {
         const QPointF corner = label.anchor - QPointF(label.icon.width()/2.0, label.icon.height()/2.0);
         if (iconOutline_) {

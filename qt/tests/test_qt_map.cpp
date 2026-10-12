@@ -837,6 +837,36 @@ private slots:
     QVERIFY(canvas.stationHits_.isEmpty());
   }
 
+  void displacedStationLabelsKeepMapVisible()
+  {
+    TileServer server;
+    QTemporaryDir cache;
+    TileSource tiles({server.urlTemplate(), cache.path()});
+    MapWidget canvas(&tiles, {0, 0}, 4);
+    canvas.resize(640, 480);
+    canvas.setMapsEnabled(false);
+    const QColor background("#18354d");
+    canvas.setMapBackground(background);
+    canvas.setTextStyle(4); // Keep the requested black-on-white text style.
+    StationModel model;
+    QVERIFY(model.upsert({"LABEL-1", {0, 0}, '/', '-', std::nullopt}));
+    QVERIFY(model.upsert({"LABEL-2", {0, 0}, '/', '-', std::nullopt}));
+    canvas.setStationModel(&model);
+    canvas.show();
+    const auto rendered = canvas.grab().toImage();
+    QCOMPARE(canvas.stationHits_.size(), 2);
+    const auto &displaced = canvas.stationHits_.last();
+    QVERIFY(!displaced.bounds.contains(displaced.location));
+    // Card padding must expose the map, even when the text has its own backdrop.
+    QCOMPARE(rendered.pixelColor((displaced.bounds.topLeft() + QPointF(1, 1)).toPoint()), background);
+    int whiteTextPixels = 0;
+    const auto textArea = displaced.bounds.adjusted(28, 3, -3, -3).toAlignedRect();
+    for (int y = textArea.top(); y <= textArea.bottom(); ++y)
+      for (int x = textArea.left(); x <= textArea.right(); ++x)
+        if (rendered.pixelColor(x, y) == QColor(Qt::white)) ++whiteTextPixels;
+    QVERIFY(whiteTextPixels > 20);
+  }
+
   void crowdedViewportKeepsDotsWithoutOverlappingText()
   {
     TileServer server;
