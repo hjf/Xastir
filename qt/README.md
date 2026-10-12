@@ -654,3 +654,50 @@ Choose Light for the original white frame. The setting applies when accepting
 the dialog; Cancel and invalid configurations leave the current appearance in
 place. Map tiles, background-color selection, station text/icon styles, and the
 application's menus and dialogs retain their independently configured appearance.
+
+## Repeatable deployment to direwolf (Labwc)
+
+From this checkout, commit application changes and run:
+
+```sh
+scripts/deploy-qt-labwc.sh
+```
+
+The defaults are `hjf@direwolf`, output `HDMI-A-2`, and two build jobs. Override
+these with `--host`, `--output`, or `--jobs`. The script ships committed HEAD,
+builds natively on the destination (including ARM64), and runs the Linux test
+suite offscreen before installing a release. Missing Debian/Raspberry Pi OS Qt
+6 development, Wayland, SQLite, and Shapelib packages are installed with
+passwordless `sudo -n`. Source uploads/builds live in
+`~/.cache/xastir-qt-deploy`; releases live in `~/.local/opt/xastir-qt/releases`.
+
+The tested release is promoted through the atomic `current` symlink; `previous`
+points to the preceding release for rollback. The launcher is
+`~/.local/bin/xastir-qt`. It uses native Wayland, prevents duplicate instances,
+and writes a private log to `~/.cache/xastir-qt/application.log` (rotated at the
+next launch after exceeding 5 MiB). Existing Qt settings, history, and legacy
+station/interface configuration stay on the destination.
+
+Deployment updates `~/.config/labwc/autostart`, preserving OpenHamClock and
+unrelated entries. A rule for the stable `xastir-qt` application ID moves the main
+window to the chosen output and toggles fullscreen on initial mapping. The
+`normal` window-type match leaves dialogs usable. The old XDG
+`~/.config/autostart/xastir.desktop` entry is hidden to avoid a duplicate legacy
+startup. Changed configuration files get timestamped `.bak` copies beside them.
+Labwc configuration is reloaded; the app autostarts at the next Labwc login.
+Deployment does not launch/terminate applications or restart the desktop.
+
+For an API key needed at autostart, place shell environment assignments in
+`~/.config/xastir-qt/environment` with mode 600, for example an exported
+`XASTIR_TILE_API_KEY`. Credentials from the build machine are not copied.
+
+SSH defaults to `-F /dev/null`, avoiding the broken global SSH include encountered
+on this build machine. Set `XASTIR_DEPLOY_SSH_CONFIG` to a working SSH config file
+if the destination needs host aliases, proxying, or a different port.
+
+Validate the configuration updater independently with:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tests/deployment/test_labwc_configuration.py
+bash -n scripts/deploy-qt-labwc.sh scripts/deploy-qt-remote.sh
+```
