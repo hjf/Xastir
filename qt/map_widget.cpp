@@ -422,15 +422,16 @@ void MapWidget::drawStations(QPainter &painter)
       }
       QPainterPath path;
       path.addText(label.anchor + QPointF(14, (metrics.ascent() - metrics.descent()) / 2), labelFont, label.text);
-      if (textStyle_ == 2 || textStyle_ == 4) {
-        painter.fillRect(path.boundingRect().adjusted(-2,-2,2,2), textStyle_ == 2 ? Qt::black : Qt::white);
-      }
       if (textStyle_ == 1 || textStyle_ == 3) {
         painter.save(); painter.translate(textStyle_ == 1 ? 1 : 2, textStyle_ == 1 ? 1 : 2);
         painter.setPen(Qt::NoPen); painter.setBrush(Qt::black); painter.drawPath(path); painter.restore();
       }
-      painter.setPen(textStyle_ == 0 ? QPen(Qt::black, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin) : QPen(Qt::NoPen));
-      painter.setBrush(textStyle_ == 4 ? Qt::black : Qt::white); painter.drawPath(path);
+      // Contrast belongs around the glyphs, not in an opaque label rectangle.
+      painter.setPen(textStyle_ == 0 || textStyle_ == 2 || textStyle_ == 4
+        ? QPen(textStyle_ == 4 ? Qt::white : Qt::black, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin)
+        : QPen(Qt::NoPen));
+      painter.setBrush(Qt::NoBrush); painter.drawPath(path);
+      painter.fillPath(path, textStyle_ == 4 ? Qt::black : Qt::white);
     }
   }
   for (const auto &label : labels) {

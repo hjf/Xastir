@@ -6,6 +6,7 @@
 #include "vector_maps.h"
 #include "vector_map.h"
 #include <QPainter>
+#include <QPainterPath>
 #include <QComboBox>
 #include <QCheckBox>
 #include "aprs_symbols.h"
@@ -837,8 +838,16 @@ private slots:
     QVERIFY(canvas.stationHits_.isEmpty());
   }
 
+  void displacedStationLabelsKeepMapVisible_data()
+  {
+    QTest::addColumn<int>("textStyle");
+    QTest::newRow("black-on-white") << 4;
+    QTest::newRow("white-on-black") << 2;
+  }
+
   void displacedStationLabelsKeepMapVisible()
   {
+    QFETCH(int, textStyle);
     TileServer server;
     QTemporaryDir cache;
     TileSource tiles({server.urlTemplate(), cache.path()});
@@ -847,7 +856,7 @@ private slots:
     canvas.setMapsEnabled(false);
     const QColor background("#18354d");
     canvas.setMapBackground(background);
-    canvas.setTextStyle(4); // Keep the requested black-on-white text style.
+    canvas.setTextStyle(textStyle);
     StationModel model;
     QVERIFY(model.upsert({"LABEL-1", {0, 0}, '/', '-', std::nullopt}));
     QVERIFY(model.upsert({"LABEL-2", {0, 0}, '/', '-', std::nullopt}));
@@ -857,14 +866,27 @@ private slots:
     QCOMPARE(canvas.stationHits_.size(), 2);
     const auto &displaced = canvas.stationHits_.last();
     QVERIFY(!displaced.bounds.contains(displaced.location));
-    // Card padding must expose the map, even when the text has its own backdrop.
+    // Both card padding and spaces around the glyphs must expose the map.
     QCOMPARE(rendered.pixelColor((displaced.bounds.topLeft() + QPointF(1, 1)).toPoint()), background);
-    int whiteTextPixels = 0;
+    QFont labelFont = canvas.font(); labelFont.setBold(true);
+    const QFontMetricsF metrics(labelFont);
+    QPainterPath text;
+    text.addText(QPointF(displaced.bounds.left() + 27,
+                        displaced.bounds.center().y() + (metrics.ascent() - metrics.descent()) / 2),
+                 labelFont, displaced.name);
+    int mapPixelsBetweenLetters = 0;
+    const auto glyphBounds = text.boundingRect().toAlignedRect().adjusted(1, 1, -1, -1);
+    for (int y = glyphBounds.top(); y <= glyphBounds.bottom(); ++y)
+      for (int x = glyphBounds.left(); x <= glyphBounds.right(); ++x)
+        if (rendered.pixelColor(x, y) == background) ++mapPixelsBetweenLetters;
+    QVERIFY(mapPixelsBetweenLetters > 10);
+    int outlinePixels = 0;
+    const QColor outlineColor(textStyle == 4 ? Qt::white : Qt::black);
     const auto textArea = displaced.bounds.adjusted(28, 3, -3, -3).toAlignedRect();
     for (int y = textArea.top(); y <= textArea.bottom(); ++y)
       for (int x = textArea.left(); x <= textArea.right(); ++x)
-        if (rendered.pixelColor(x, y) == QColor(Qt::white)) ++whiteTextPixels;
-    QVERIFY(whiteTextPixels > 20);
+        if (rendered.pixelColor(x, y) == outlineColor) ++outlinePixels;
+    QVERIFY(outlinePixels > 20);
   }
 
   void crowdedViewportKeepsDotsWithoutOverlappingText()
