@@ -4,6 +4,7 @@
 #include "map_projection.h"
 #include "aprs_symbols.h"
 #include "station_view.h"
+#include "xastir_config.h"
 #include <QPointer>
 #include <QCache>
 #include <QTimer>
@@ -52,6 +53,8 @@ public:
   void setTextStyle(int style) { textStyle_ = style; update(); }
   void setIconOutline(int style) { iconOutline_ = style; update(); }
   bool stationVisible(const QString &name) const;
+  void setTiming(const TimingSettings &value) { timing_ = value; update(); }
+  const TimingSettings &timing() const { return timing_; }
 
 signals:
   void stationClicked(const QString &name);
@@ -88,6 +91,7 @@ private:
   void drawStationOverlays(QPainter &painter, const DataRow &row);
   void drawRange(QPainter &painter, map::Coordinate center, double meters, double start = 0, double span = 360);
 
+  TimingSettings timing_;
   VectorMaps *vectors_;
   QString baseMap_ = "raster", rasterAttribution_;
   int vectorLayers_ = 15;

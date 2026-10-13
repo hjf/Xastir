@@ -3,6 +3,7 @@
 #include "map_widget.h"
 #include "map_menu.h"
 #include "file_menu.h"
+#include "configuration_ui.h"
 #include "station_model.h"
 #include "agwpe_client.h"
 #include "legacy_menus.h"
@@ -128,6 +129,7 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
     new HistoryUi(this,history_,options.config.callsign);
   }
   beacons_=new BeaconControl(this,options.config,[this]{return clients_;});
+  new ConfigurationUi(this, mapWidget_, monitor_, beacons_, options.config);
   transmitDisabled_=beacons_->transmitDisabled();
   connect(beacons_,&BeaconControl::transmitDisabledChanged,this,[this](bool disabled){transmitDisabled_=disabled;});
   connect(beacons_,&BeaconControl::statusChanged,statusBar(),[this](const QString &message){statusBar()->showMessage(message,10000);});

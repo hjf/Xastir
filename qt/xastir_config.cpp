@@ -16,6 +16,16 @@ bool readXastirConfig(const QString &path, XastirConfig &config, QString *error)
     if (!line.startsWith('#') && colon > 0) values.insert(line.left(colon), line.mid(colon + 1));
   }
   XastirConfig result;
+  auto bounded = [&values](const char *key, int fallback, int minimum, int maximum) {
+    bool ok = false;
+    const int value = values.value(QString::fromLatin1(key)).trimmed().toInt(&ok);
+    return ok && value >= minimum && value <= maximum ? value : fallback;
+  };
+  result.timing.clearSeconds = bounded("DEFAULT_STATION_CLEAR", 3600, 1, 604800);
+  result.timing.aircraftSeconds = bounded("DEFAULT_AIRCRAFT_CLEAR", 0, 0, 604800);
+  result.timing.deadReckoningSeconds = bounded("DEAD_RECKONING_TIMEOUT", 600, 1, 2592000);
+  result.timing.beaconSeconds = bounded("POSIT_RATE", 300, 60, 86400);
+  result.trafficUtf8 = bounded("TRAFFIC_UTF8", 1, 0, 1) != 0;
   Selections selection{};
   What_to_display display{};
   auto flag = [&values](const char *key, int fallback) {

@@ -21,7 +21,10 @@ BeaconControl::BeaconControl(QMainWindow *w, XastirConfig config, Interfaces int
   positionDisabled_ =
       settings.value("transmit/positionDisabled", config_.positionTransmitDisabled).toBool();
   periodic_ = settings.value("beacon/periodic", false).toBool();
-  interval_ = qBound(60, settings.value("beacon/interval", 300).toInt(), 86400);
+  bool validInterval = false;
+  const int savedInterval = settings.value("beacon/interval", config_.timing.beaconSeconds).toInt(&validInterval);
+  interval_ = validInterval && savedInterval >= 60 && savedInterval <= 86400
+    ? savedInterval : config_.timing.beaconSeconds;
   device_ = settings.value("beacon/device", -1).toInt();
   auto bind = [this](const char *id, auto handler)
   {
@@ -62,6 +65,13 @@ BeaconControl::BeaconControl(QMainWindow *w, XastirConfig config, Interfaces int
               emit statusChanged(tr("Position beacon: %1").arg(error));
           });
   schedule();
+}
+void BeaconControl::setIntervalSeconds(int seconds)
+{
+  interval_ = qBound(60, seconds, 86400);
+  QSettings().setValue("beacon/interval", interval_);
+  schedule();
+  emit intervalChanged(interval_);
 }
 void BeaconControl::configure(const XastirConfig &config)
 {
@@ -184,6 +194,7 @@ void BeaconControl::open()
     layout->addWidget(periodic);
     auto *interval = new QSpinBox(d);
     interval->setObjectName("beaconInterval");
+    connect(this, &BeaconControl::intervalChanged, interval, &QSpinBox::setValue);
     interval->setRange(60, 86400);
     interval->setSuffix(tr(" seconds"));
     interval->setValue(interval_);
@@ -203,7 +214,7 @@ void BeaconControl::open()
                 return;
               }
               periodic_ = periodic->isChecked();
-              interval_ = interval->value();
+              setIntervalSeconds(interval->value());
               device_ = devices_->currentData().toInt();
               QSettings settings;
               settings.setValue("beacon/periodic", periodic_);

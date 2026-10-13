@@ -17,6 +17,8 @@ public:
   using Interfaces = std::function<QList<AgwpeClient *>()>;
   BeaconControl(QMainWindow *, XastirConfig, Interfaces);
   void configure(const XastirConfig &);
+  void setIntervalSeconds(int seconds);
+  int intervalSeconds() const { return interval_; }
   QByteArray information(QString *error = nullptr) const;
   bool sendNow(int device, QString *error = nullptr);
   void open();
@@ -25,6 +27,7 @@ public:
 signals:
   void transmitDisabledChanged(bool disabled);
   void statusChanged(const QString &status);
+  void intervalChanged(int seconds);
 
 private:
   void schedule();

@@ -13,6 +13,8 @@ class PacketMonitor : public QObject {
 public:
   explicit PacketMonitor(QMainWindow *window);
   void receive(const QByteArray &packet, int device);
+  void setTrafficUtf8(bool enabled);
+  bool trafficUtf8() const { return trafficUtf8_; }
   bool startCapture(const QString &path, QString *error = nullptr);
   void stopCapture();
   bool startReplay(const QString &path, QString *error = nullptr);
@@ -36,5 +38,6 @@ private:
   QLabel *status_ = nullptr;
   QFile capture_, replay_;
   QTimer timer_;
+  bool trafficUtf8_ = true;
   quint64 received_ = 0, replayed_ = 0;
 };

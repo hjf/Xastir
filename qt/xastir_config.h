@@ -24,7 +24,15 @@ struct AprsisSettings {
   bool transmitEnabled = false;
   QString passcode;
 };
+struct TimingSettings {
+  int clearSeconds = 3600;
+  int aircraftSeconds = 0;
+  int deadReckoningSeconds = 600;
+  int beaconSeconds = 300;
+};
 struct XastirConfig {
+  TimingSettings timing;
+  bool trafficUtf8 = true;
   AprsisSettings aprsis;
   bool transmitDisabled = false;
   bool positionTransmitDisabled = true;

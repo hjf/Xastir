@@ -732,3 +732,31 @@ replay with an error. Existing stations remain in place while the log is read.
 
 The remaining File logging toggles, periodic PNG/KML snapshots, and unfinished
 Configure actions still display the explicit Not implemented yet dialog.
+
+## File menu: Defaults and Timing
+
+File → Configure → Defaults provides the global and position transmit-disable
+controls (shared with the Interface menu), plus UTF-8 versus Latin-1 decoding
+for new Incoming Data rows. Captures retain the original bytes. Changes require
+OK; Cancel leaves settings and live behavior unchanged. Enabling transmission
+still requires the relevant interface's TX control, and Internet messages
+require a server-confirmed verified login.
+
+File → Configure → Timing controls station clear time, aircraft clear time,
+dead-reckoning timeout, and the fixed position beacon interval. Values are
+specified in seconds and saved in Qt settings. Applying timing updates map
+visibility using the original C selection routine; clearing hides stations
+without removing station state or persistent history. Display Old Data bypasses
+station clearing, while aircraft retain the legacy five-times-clear cutoff.
+Changing the beacon interval restarts its schedule with a full interval and
+updates an already-open Position Beacon dialog. It does not enable periodic
+sending or TX. Qt retains its 60-second minimum beacon interval.
+
+Legacy configuration imports DEFAULT_STATION_CLEAR, DEFAULT_AIRCRAFT_CLEAR,
+DEAD_RECKONING_TIMEOUT, POSIT_RATE (60 seconds or greater), and TRAFFIC_UTF8.
+Saved Qt values take precedence; malformed timing values fall back to the
+imported/default values. Existing Qt timing defaults remain unchanged.
+
+These dialogs expose the currently supported subset. Other legacy defaults,
+ghosting/removal timers, GPS and object transmission timers, serial pacing,
+trail timing, and periodic snapshots remain explicitly marked unfinished.

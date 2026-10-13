@@ -8,6 +8,7 @@ add_library(xastir_qt_ui STATIC
   vector_maps.cpp vector_maps.h
   main_window.cpp main_window.h
   file_menu.cpp file_menu.h
+  configuration_ui.cpp configuration_ui.h
   legacy_menus.cpp legacy_menus.h
   message_service.cpp message_service.h
   message_ui.cpp message_ui.h
@@ -64,6 +65,14 @@ install(TARGETS xastir-qt RUNTIME DESTINATION bin BUNDLE DESTINATION .)
 
 if(BUILD_TESTING)
   find_package(Qt6 6.4 REQUIRED COMPONENTS Test)
+  qt_add_executable(test_configuration tests/test_configuration.cpp)
+  target_link_libraries(test_configuration PRIVATE xastir_qt_ui Qt6::Test)
+  set_target_properties(test_configuration PROPERTIES WIN32_EXECUTABLE FALSE)
+  if(TARGET Qt6::QOffscreenIntegrationPlugin)
+    qt_import_plugins(test_configuration INCLUDE Qt6::QOffscreenIntegrationPlugin)
+  endif()
+  add_test(NAME configuration COMMAND test_configuration)
+  set_tests_properties(configuration PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
   qt_add_executable(test_history tests/test_history.cpp)
   target_link_libraries(test_history PRIVATE xastir_qt_ui Qt6::Test)
   set_target_properties(test_history PROPERTIES WIN32_EXECUTABLE FALSE)

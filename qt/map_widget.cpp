@@ -189,7 +189,7 @@ void MapWidget::paintEvent(QPaintEvent *)
 
 bool MapWidget::stationVisible(const QString &name) const
 {
-  return stations_ && xastir_station_visible(stations_->record(name), &selections_, QDateTime::currentSecsSinceEpoch(), 3600, 3600, 0);
+  return stations_ && xastir_station_visible(stations_->record(name), &selections_, QDateTime::currentSecsSinceEpoch(), timing_.clearSeconds, 3600, timing_.aircraftSeconds);
 }
 void MapWidget::drawRange(QPainter &painter, map::Coordinate center, double meters, double start, double span)
 {
@@ -277,7 +277,7 @@ void MapWidget::drawStationOverlays(QPainter &painter, const DataRow &row)
   }
   const double speed = std::atof(row.speed);
   const qint64 age = now - row.sec_heard;
-  if (display_.dr_data && row.heading_valid && speed > 0 && !row.weather_data && age >= 0 && age <= 600) {
+  if (display_.dr_data && row.heading_valid && speed > 0 && !row.weather_data && age >= 0 && age <= timing_.deadReckoningSeconds) {
     const double meters = speed * 1852 / 3600 * age;
     long predictedLon, predictedLat;
     xastir_compute_DR_position(row.coord_lon,row.coord_lat,meters/1852,row.heading,&predictedLon,&predictedLat);

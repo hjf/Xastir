@@ -55,7 +55,11 @@ void PacketMonitor::append(const QByteArray &packet, int device, qint64 timestam
   if (model_->rowCount() >= 2000) model_->removeRow(0);
   model_->appendRow({new QStandardItem(QDateTime::fromMSecsSinceEpoch(timestamp).toString("MM-dd HH:mm:ss.zzz")),
     new QStandardItem(replay ? tr("Replay") : tr("Device %1").arg(device)),
-    new QStandardItem(QString::fromLatin1(packet))});
+    new QStandardItem(trafficUtf8_ ? QString::fromUtf8(packet) : QString::fromLatin1(packet))});
+}
+void PacketMonitor::setTrafficUtf8(bool enabled)
+{
+  trafficUtf8_ = enabled;
 }
 void PacketMonitor::receive(const QByteArray &packet, int device)
 {
