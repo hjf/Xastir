@@ -730,7 +730,7 @@ updates the map: it does not deliver messages, ACK, auto-reply, transmit, or add
 records to persistent traffic history. Oversized or malformed records stop
 replay with an error. Existing stations remain in place while the log is read.
 
-The remaining File logging toggles, periodic PNG/KML snapshots, and unfinished
+The remaining File logging toggles, periodic KML snapshots, and unfinished
 Configure actions still display the explicit Not implemented yet dialog.
 
 ## File menu: Defaults and Timing
@@ -759,4 +759,27 @@ imported/default values. Existing Qt timing defaults remain unchanged.
 
 These dialogs expose the currently supported subset. Other legacy defaults,
 ghosting/removal timers, GPS and object transmission timers, serial pacing,
-trail timing, and periodic snapshots remain explicitly marked unfinished.
+and trail timing remain explicitly marked unfinished.
+
+## Periodic PNG snapshots
+
+File → PNG Snapshots enables periodic map captures. File → Configure → Timing
+sets the output directory and interval (1–30 minutes, default 5). The default
+directory is `snapshots` beneath Qt's application data location. Enabling takes
+a snapshot immediately when the map is visible; hidden windows are skipped.
+Settings and the toggle restore on restart. Applying a new interval restarts
+the timer; Cancel preserves the current settings.
+
+Like the original frontend, each capture replaces `snapshot.png`, retaining
+one current image rather than an accumulating archive. The image contains the
+rendered map, stations, and map attribution. Capturing pixels happens on the UI
+thread; PNG encoding and atomic file replacement run on a worker thread, with
+one write in flight. Busy timer ticks are skipped. Disabling stops new captures;
+an in-flight write may still finish, including during shutdown.
+
+Write failures disable the toggle and report the destination and error in the
+status bar. Correct the directory and enable PNG Snapshots again to retry.
+Errors from a superseded directory do not disable a new configuration. Legacy
+SNAPSHOTS_ENABLED and SNAPSHOT_INTERVAL values are imported, with saved Qt
+settings taking precedence. KML snapshots and geographic sidecars remain
+unfinished; PNG snapshots capture the current viewport only.

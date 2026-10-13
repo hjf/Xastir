@@ -3,6 +3,11 @@
 #include "beacon_control.h"
 #include "map_widget.h"
 #include "packet_monitor.h"
+#include "snapshot_control.h"
+#include <QFileDialog>
+#include <QHBoxLayout>
+#include <QLineEdit>
+#include <QPushButton>
 #include <QAction>
 #include <QCheckBox>
 #include <QDialog>
@@ -16,8 +21,8 @@
 #include <QStatusBar>
 
 ConfigurationUi::ConfigurationUi(QMainWindow *window, MapWidget *map, PacketMonitor *monitor,
-                                 BeaconControl *beacons, const XastirConfig &config)
-  : QObject(window), window_(window), map_(map), monitor_(monitor), beacons_(beacons)
+                                 BeaconControl *beacons, SnapshotControl *snapshots, const XastirConfig &config)
+  : QObject(window), window_(window), map_(map), monitor_(monitor), beacons_(beacons), snapshots_(snapshots)
 {
   QSettings settings;
   auto bounded = [&settings](const char *key, int fallback, int minimum, int maximum) {
@@ -115,23 +120,45 @@ void ConfigurationUi::timing()
   aircraft->setSpecialValueText(tr("Disabled"));
   auto *dr = spin(tr("Dead-reckoning timeout"), "timingDeadReckoning", 1, 2592000, value.deadReckoningSeconds);
   auto *beacon = spin(tr("Position beacon interval"), "timingBeacon", 60, 86400, beacons_->intervalSeconds());
-  auto *note = new QLabel(tr("Clear times affect map visibility, not stored history. Display Old Data bypasses station clearing. Aircraft use the legacy five-times-clear cutoff.\n\nChanging the beacon interval waits one full interval; periodic sending and TX must be enabled separately in Position Beacon and Interface Control.\n\nGhosting, station removal, GPS, object transmission, serial pacing, trail timing, and periodic snapshots are not implemented here yet."), dialog);
+  auto *snapshotInterval = new QSpinBox(dialog);
+  snapshotInterval->setObjectName("timingSnapshotInterval");
+  snapshotInterval->setRange(1, 30); snapshotInterval->setSuffix(tr(" minutes"));
+  snapshotInterval->setValue(snapshots_->intervalMinutes());
+  form->addRow(tr("PNG snapshot interval"), snapshotInterval);
+  auto *directory = new QLineEdit(snapshots_->directory(), dialog);
+  directory->setObjectName("timingSnapshotDirectory");
+  auto *browse = new QPushButton(tr("Browse…"), dialog);
+  auto *directoryRow = new QHBoxLayout;
+  directoryRow->addWidget(directory); directoryRow->addWidget(browse);
+  form->addRow(tr("PNG snapshot directory"), directoryRow);
+  connect(browse, &QPushButton::clicked, dialog, [dialog, directory] {
+    const auto path = QFileDialog::getExistingDirectory(dialog, tr("PNG snapshot directory"), directory->text());
+    if (!path.isEmpty()) directory->setText(path);
+  });
+  auto *note = new QLabel(tr("Clear times affect map visibility, not stored history. Display Old Data bypasses station clearing. Aircraft use the legacy five-times-clear cutoff.\n\nChanging the beacon interval waits one full interval; periodic sending and TX must be enabled separately in Position Beacon and Interface Control.\n\nGhosting, station removal, GPS, object transmission, serial pacing, and trail timing are not implemented here yet.\n\nEnable PNG Snapshots in the File menu to refresh snapshot.png in the selected directory."), dialog);
   note->setWordWrap(true); form->addRow(note);
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
   form->addRow(buttons);
   connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
-  connect(buttons, &QDialogButtonBox::accepted, this, [this, dialog, clear, aircraft, dr, beacon] {
+  connect(buttons, &QDialogButtonBox::accepted, this, [this, dialog, clear, aircraft, dr, beacon, snapshotInterval, directory] {
+    if (directory->text().trimmed().isEmpty()) {
+      QMessageBox::warning(dialog, tr("PNG snapshots"), tr("Choose a snapshot directory."));
+      return;
+    }
     QSettings settings;
     settings.setValue("timing/clearSeconds", clear->value());
     settings.setValue("timing/aircraftSeconds", aircraft->value());
     settings.setValue("timing/deadReckoningSeconds", dr->value());
     settings.setValue("beacon/interval", beacon->value());
+    settings.setValue("snapshots/directory", directory->text().trimmed());
+    settings.setValue("snapshots/intervalMinutes", snapshotInterval->value());
     if (!save()) return;
     auto value = map_->timing();
     value.clearSeconds = clear->value(); value.aircraftSeconds = aircraft->value();
     value.deadReckoningSeconds = dr->value(); value.beaconSeconds = beacon->value();
     map_->setTiming(value);
     beacons_->setIntervalSeconds(beacon->value());
+    snapshots_->configure(directory->text(), snapshotInterval->value());
     window_->statusBar()->showMessage(tr("Timing saved and applied."), 5000);
     dialog->accept();
   });

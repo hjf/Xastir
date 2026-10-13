@@ -9,6 +9,7 @@ add_library(xastir_qt_ui STATIC
   main_window.cpp main_window.h
   file_menu.cpp file_menu.h
   configuration_ui.cpp configuration_ui.h
+  snapshot_control.cpp snapshot_control.h
   legacy_menus.cpp legacy_menus.h
   message_service.cpp message_service.h
   message_ui.cpp message_ui.h
@@ -65,6 +66,14 @@ install(TARGETS xastir-qt RUNTIME DESTINATION bin BUNDLE DESTINATION .)
 
 if(BUILD_TESTING)
   find_package(Qt6 6.4 REQUIRED COMPONENTS Test)
+  qt_add_executable(test_snapshots tests/test_snapshots.cpp)
+  target_link_libraries(test_snapshots PRIVATE xastir_qt_ui Qt6::Test)
+  set_target_properties(test_snapshots PROPERTIES WIN32_EXECUTABLE FALSE)
+  if(TARGET Qt6::QOffscreenIntegrationPlugin)
+    qt_import_plugins(test_snapshots INCLUDE Qt6::QOffscreenIntegrationPlugin)
+  endif()
+  add_test(NAME snapshots COMMAND test_snapshots)
+  set_tests_properties(snapshots PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
   qt_add_executable(test_configuration tests/test_configuration.cpp)
   target_link_libraries(test_configuration PRIVATE xastir_qt_ui Qt6::Test)
   set_target_properties(test_configuration PROPERTIES WIN32_EXECUTABLE FALSE)
