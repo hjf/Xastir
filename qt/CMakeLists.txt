@@ -7,6 +7,7 @@ add_library(xastir_qt_ui STATIC
   map_menu.cpp map_menu.h
   vector_maps.cpp vector_maps.h
   main_window.cpp main_window.h
+  file_menu.cpp file_menu.h
   legacy_menus.cpp legacy_menus.h
   message_service.cpp message_service.h
   message_ui.cpp message_ui.h
@@ -45,7 +46,7 @@ if(SHAPELIB_INCLUDE_DIR AND SHAPELIB_LIBRARY AND XASTIR_WITH_SHAPELIB)
 endif()
 qt_add_resources(xastir_qt_ui offline_maps PREFIX "/maps" BASE "${PROJECT_SOURCE_DIR}" FILES ${offline_map_files})
 target_include_directories(xastir_qt_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(xastir_qt_ui PUBLIC Qt6::Widgets Qt6::Network SQLite::SQLite3 xastir_core)
+target_link_libraries(xastir_qt_ui PUBLIC Qt6::Widgets Qt6::Network Qt6::PrintSupport SQLite::SQLite3 xastir_core)
 if(MSVC)
   target_compile_options(xastir_qt_ui PRIVATE /W4)
 else()

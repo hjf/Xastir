@@ -38,6 +38,12 @@ PacketMonitor::PacketMonitor(QMainWindow *window) : QObject(window), window_(win
     auto *box = new QMessageBox(QMessageBox::Warning, tr("Incoming Data"), error, QMessageBox::Ok, window_);
     box->setAttribute(Qt::WA_DeleteOnClose); box->open();
   });
+  if (auto *action = window->findChild<QAction *>("PULDNFI002")) {
+    QObject::disconnect(action, nullptr, window, nullptr);
+    action->setProperty("implemented", true);
+    action->setShortcut(QKeySequence::Open);
+    connect(action, &QAction::triggered, this, &PacketMonitor::openLogFile);
+  }
   if (auto *action = window->findChild<QAction *>("PULDNVI002")) {
     QObject::disconnect(action, nullptr, window, nullptr);
     action->setProperty("implemented", true);
@@ -111,13 +117,17 @@ void PacketMonitor::replayNext()
       stopReplay(); emit errorOccurred(tr("Invalid capture record.")); return;
     }
     packet = decoded.decoded;
-    timestamp = object.value("timestamp").toVariant().toLongLong();
+    bool validTimestamp = false;
+    timestamp = object.value("timestamp").toVariant().toLongLong(&validTimestamp);
+    if (!validTimestamp || timestamp < 1000) {
+      stopReplay(); emit errorOccurred(tr("Invalid timestamp in capture record.")); return;
+    }
   }
   if (packet.isEmpty() || packet.size() > 4096 || packet.contains('\0') || packet.contains('\n') || packet.contains('\r')
       || packet.indexOf('>') < 1 || packet.indexOf(':') < packet.indexOf('>')) {
     stopReplay(); emit errorOccurred(tr("Invalid TNC2 packet in replay file.")); return;
   }
-  ++replayed_; append(packet, -1, timestamp, true); emit replayPacket(packet); updateStatus();
+  ++replayed_; append(packet, -1, timestamp, true); emit replayPacket(packet, timestamp); updateStatus();
 }
 void PacketMonitor::updateStatus()
 {
@@ -153,12 +163,24 @@ void PacketMonitor::open()
     if (!path.isEmpty()) { QString error; if (!startCapture(path, &error)) emit errorOccurred(error); }
   });
   button(tr("Stop capture"), [this] { stopCapture(); });
-  button(tr("Replay…"), [this] {
-    const auto path = QFileDialog::getOpenFileName(dialog_, tr("Replay packets on map (10 packets/sec)"), {}, tr("Packet logs (*.jsonl *.log *.txt);;All files (*)"));
-    if (!path.isEmpty()) { QString error; if (!startReplay(path, &error)) emit errorOccurred(error); }
-  });
+  button(tr("Replay…"), [this] { openLogFile(); });
   button(tr("Stop replay"), [this] { stopReplay(); });
   button(tr("Close"), [dialog] { dialog->close(); });
   layout->addWidget(new QLabel(tr("Replay updates stations and objects on the map. Recorded messages do not send replies."), dialog));
   updateStatus(); dialog->show();
+}
+
+void PacketMonitor::openLogFile()
+{
+  auto *chooser = new QFileDialog(window_, tr("Open log file — replay on map (10 packets/sec)"));
+  chooser->setObjectName("openLogFileDialog");
+  chooser->setAttribute(Qt::WA_DeleteOnClose);
+  chooser->setFileMode(QFileDialog::ExistingFile);
+  chooser->setNameFilter(tr("Packet logs (*.jsonl *.log *.txt);;All files (*)"));
+  connect(chooser, &QFileDialog::fileSelected, this, [this](const QString &path) {
+    QString error;
+    if (!startReplay(path, &error)) emit errorOccurred(error);
+    else open();
+  });
+  chooser->open();
 }

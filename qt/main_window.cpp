@@ -2,6 +2,7 @@
 #include "main_window.h"
 #include "map_widget.h"
 #include "map_menu.h"
+#include "file_menu.h"
 #include "station_model.h"
 #include "agwpe_client.h"
 #include "legacy_menus.h"
@@ -20,6 +21,7 @@
 #include <QTimer>
 
 #include <QLabel>
+#include <QMessageBox>
 #include <QStatusBar>
 #include <QAction>
 #include <QMenuBar>
@@ -50,6 +52,7 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   setCentralWidget(mapWidget);
 
   createLegacyMenus(this);
+  new FileMenu(this, mapWidget_);
   auto *fullscreen = new QAction(tr("Toggle fullscreen"), this);
   fullscreen->setObjectName("toggleFullscreen");
   fullscreen->setShortcut(QKeySequence(Qt::Key_F11));
@@ -80,8 +83,8 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
     following->setText(name.isEmpty() ? QString() : tr("Following %1").arg(name));
   });
   auto *monitor = new PacketMonitor(this); monitor_=monitor;
-  connect(monitor, &PacketMonitor::replayPacket, stations_, [this](const QByteArray &packet) {
-    stations_->applyPacket(packet,'F');
+  connect(monitor, &PacketMonitor::replayPacket, stations_, [this](const QByteArray &packet, qint64 timestamp) {
+    stations_->applyPacket(packet,'F', timestamp / 1000);
   });
 
   auto *position = new QLabel(this);

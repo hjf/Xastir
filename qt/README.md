@@ -713,3 +713,22 @@ Validate the configuration updater independently with:
 PYTHONDONTWRITEBYTECODE=1 python3 tests/deployment/test_labwc_configuration.py
 bash -n scripts/deploy-qt-labwc.sh scripts/deploy-qt-remote.sh
 ```
+
+## File menu: printing and log replay
+
+File → Print (Ctrl+P) opens a Qt print preview of the current map, including
+station overlays. The preview freezes the visible map at invocation, fits it to
+a landscape page without changing its aspect ratio, and offers the platform's
+printer/PDF controls. It uses Qt PrintSupport; physical printer availability
+is determined by the host system.
+
+File → Open Log File (Ctrl+O) accepts plain TNC2 logs and the JSONL captures
+created by Incoming Data. Replay processes ten records per second and opens the
+Incoming Data monitor, where Stop replay cancels it. JSONL timestamps are
+preserved in station state; plain TNC2 records use the replay time. Replay only
+updates the map: it does not deliver messages, ACK, auto-reply, transmit, or add
+records to persistent traffic history. Oversized or malformed records stop
+replay with an error. Existing stations remain in place while the log is read.
+
+The remaining File logging toggles, periodic PNG/KML snapshots, and unfinished
+Configure actions still display the explicit Not implemented yet dialog.

@@ -22,8 +22,9 @@ public:
   QStandardItemModel *model() const { return model_; }
 public slots:
   void open();
+  void openLogFile();
 signals:
-  void replayPacket(const QByteArray &packet);
+  void replayPacket(const QByteArray &packet, qint64 timestamp);
   void errorOccurred(const QString &error);
 private:
   void append(const QByteArray &packet, int device, qint64 timestamp, bool replay);
