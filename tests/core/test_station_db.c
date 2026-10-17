@@ -60,11 +60,18 @@ int main(void)
   report.latitude = 91; CHECK(!xastir_station_update(b, &report, 300)); CHECK(row->num_packets == 2);
   report.latitude = -27.44; report.kind = 2; CHECK(xastir_station_update(b, &report, 300));
   CHECK((row->flag & ST_ITEM) && !(row->flag & ST_OBJECT));
+  CHECK(!xastir_station_remove(b, "Park", 0));
+  CHECK(!xastir_station_remove(b, "Park", 1));
+  CHECK(xastir_station_remove(b, "Park", 2));
+  CHECK(!xastir_station_remove(b, "Park", 2));
+  CHECK(consistent(b));
   CHECK(xastir_station_upsert(b, "\xc3\x81rea", 100));
   CHECK(xastir_station_upsert(b, "ALPHA", 100));
   CHECK(xastir_station_upsert(b, "BETA", 100));
   CHECK(consistent(b)); CHECK(xastir_search_station_name(b, &row, "ALPHA", 1));
   row->flag |= ST_MYSTATION;
+  CHECK(!xastir_station_remove(b, "ALPHA", 1));
+  CHECK(!xastir_station_remove(b, "ALPHA", 2));
   double local_latitude = row->latitude;
   report.name = "ALPHA"; report.kind = 0; report.latitude = 40; report.longitude = 20;
   CHECK(xastir_station_update(b, &report, 200));

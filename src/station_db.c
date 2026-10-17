@@ -1812,3 +1812,14 @@ int xastir_station_update(XastirStationDb *db, const XastirStationReport *r, tim
   ++row->num_packets;
   return 1;
 }
+
+int xastir_station_remove(XastirStationDb *db, const char *name, int kind)
+{
+  DataRow *row = NULL;
+  if (!db || !name || kind < 0 || kind > 2
+      || !xastir_search_station_name(db, &row, (char *)name, 1)) return 0;
+  const int stored_kind = row->flag & ST_OBJECT ? 1 : row->flag & ST_ITEM ? 2 : 0;
+  if (kind != stored_kind) return 0;
+  xastir_station_del_ptr(db, row);
+  return 1;
+}

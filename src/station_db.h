@@ -26,6 +26,8 @@ typedef struct {
 } XastirStationReport;
 /* Validated geographic import into the original DataRow storage. */
 int xastir_station_update(XastirStationDb *db, const XastirStationReport *report, time_t now);
+/* Remove only a matching entity kind; an object kill must not delete a station. */
+int xastir_station_remove(XastirStationDb *db, const char *name, int kind);
 void xastir_station_db_init(XastirStationDb *db, time_t now);
 DataRow *xastir_station_upsert(XastirStationDb *db, const char *name, time_t now);
 void xastir_station_touch(XastirStationDb *db, DataRow *row, time_t now);

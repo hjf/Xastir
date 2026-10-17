@@ -24,6 +24,46 @@ private slots:
     QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,settingsDirectory_.path());
   }
   void init() { QSettings().clear(); }
+  void projectionRetainsStoredMetadata() {
+    StationModel stations;
+    stations.applyPacket("WX>APRS:_10091300c180s005g010t032h50b10000", 'T', 100);
+    stations.applyPacket("WX>APRS:!4903.50N/07201.75W_PHG5130first", 'T', 101);
+    const auto first = stations.stations().value("WX");
+    QVERIFY(first.weather);
+    QCOMPARE(first.heardAt, qint64(101));
+    QCOMPARE(first.powerGain, QString("PHG5130"));
+    stations.applyPacket("WX>APRS,qAR,GATE:!4903.51N/07201.74W_", 'I', 102);
+    const auto updated = stations.stations().value("WX");
+    QVERIFY(updated.weather);
+    QCOMPARE(updated.weather->wx_sec_time, time_t(100));
+    QCOMPARE(updated.powerGain, first.powerGain);
+    QCOMPARE(updated.comment, QString::fromLatin1(stations.record("WX")->comment_data->text_ptr));
+    QCOMPARE(QString::fromLatin1(stations.record("WX")->comment_data->next->text_ptr), first.comment);
+    QCOMPARE(updated.direct, bool(stations.record("WX")->flag & ST_DIRECT));
+    QCOMPARE(updated.dataVia, 'I');
+    QCOMPARE(updated.heardAt, qint64(102));
+    // Ordinary live imports use the core's actual receive time, never zero.
+    Station live; live.callsign = "LIVE";
+    QVERIFY(stations.upsert(live));
+    QCOMPARE(stations.stations().value("LIVE").heardAt, qint64(stations.record("LIVE")->sec_heard));
+    QVERIFY(stations.stations().value("LIVE").heardAt > 0);
+  }
+  void killRequiresMatchingEntityKind() {
+    StationModel stations;
+    Station local; local.callsign = "LOCAL"; local.local = true;
+    QVERIFY(stations.upsert(local));
+    stations.applyPacket("OWNER>APRS:;LOCAL    _", 'T');
+    stations.applyPacket("OWNER>APRS:)LOCAL_", 'T');
+    QVERIFY(stations.stations().value("LOCAL").local);
+    stations.applyPacket("OWNER>APRS:;Aid Point*092345z4903.50N/07201.75Wh", 'T');
+    stations.applyPacket("OWNER>APRS:)Aid Point_", 'T');
+    QVERIFY(stations.record("Aid Point"));
+    stations.applyPacket("OWNER>APRS:;Aid Point_", 'T');
+    QVERIFY(!stations.record("Aid Point"));
+    stations.applyPacket("OWNER>APRS:)Item!4903.50N/07201.75Wh", 'T');
+    stations.applyPacket("OWNER>APRS:)Item_", 'T');
+    QVERIFY(!stations.record("Item"));
+  }
   void actionsAndFiltering() {
     QMainWindow window;createLegacyMenus(&window);
     TileSource tiles({},&window);auto *map=new MapWidget(&tiles,{49.058333,-72.029167},14,&window);window.setCentralWidget(map);

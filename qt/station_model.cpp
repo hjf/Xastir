@@ -88,34 +88,41 @@ StationModel::StationModel(QObject *parent) : QObject(parent), database_(std::ma
   xastir_station_db_init(database_.get(), QDateTime::currentSecsSinceEpoch());
 }
 StationModel::~StationModel() { xastir_delete_all_stations(database_.get()); }
+namespace {
+Station project(const DataRow *row)
+{
+  Station station;
+  station.callsign = QString::fromUtf8(row->call_sign);
+  station.position = {row->latitude, row->longitude};
+  station.symbolCode = QChar(row->aprs_symbol.aprs_symbol);
+  station.symbolTable = QChar(row->aprs_symbol.special_overlay
+      ? row->aprs_symbol.special_overlay : row->aprs_symbol.aprs_type);
+  if (row->heading_valid) station.course = row->heading;
+  station.kind = row->flag & ST_OBJECT ? StationKind::Object : row->flag & ST_ITEM ? StationKind::Item : StationKind::Station;
+  station.sourceStation = QString::fromUtf8(row->origin);
+  station.local = row->flag & ST_MYSTATION;
+  station.emergency = row->emergency;
+  station.speed = QString::fromLatin1(row->speed);
+  station.altitude = QString::fromLatin1(row->altitude);
+  station.ambiguity = row->pos_amb;
+  station.powerGain = QString::fromLatin1(row->power_gain);
+  station.signalGain = QString::fromLatin1(row->signal_gain);
+  station.bearing = QString::fromLatin1(row->bearing);
+  station.nrq = QString::fromLatin1(row->NRQ);
+  station.path = QString::fromLatin1(row->node_path_ptr ? row->node_path_ptr : "");
+  station.dataVia = row->data_via; station.direct = row->flag & ST_DIRECT;
+  station.heardAt = row->sec_heard;
+  if (row->weather_data) station.weather = *row->weather_data;
+  if (row->comment_data) station.comment = QString::fromLatin1(row->comment_data->text_ptr);
+  return station;
+}
+}
 void StationModel::refreshProjection()
 {
   stations_.clear();
   for (const DataRow *row = database_->first; row; row = row->n_next) {
     if (!(row->flag & ST_ACTIVE) || !row->position_valid) continue;
-    Station station;
-    station.callsign = QString::fromUtf8(row->call_sign);
-    station.position = {row->latitude, row->longitude};
-    station.symbolCode = QChar(row->aprs_symbol.aprs_symbol);
-    station.symbolTable = QChar(row->aprs_symbol.special_overlay
-        ? row->aprs_symbol.special_overlay : row->aprs_symbol.aprs_type);
-    if (row->heading_valid) station.course = row->heading;
-    station.kind = row->flag & ST_OBJECT ? StationKind::Object : row->flag & ST_ITEM ? StationKind::Item : StationKind::Station;
-    station.sourceStation = QString::fromUtf8(row->origin);
-    station.local = row->flag & ST_MYSTATION;
-    station.emergency = row->emergency;
-    station.speed = QString::fromLatin1(row->speed);
-    station.altitude = QString::fromLatin1(row->altitude);
-    station.ambiguity = row->pos_amb;
-    station.powerGain = QString::fromLatin1(row->power_gain);
-    station.signalGain = QString::fromLatin1(row->signal_gain);
-    station.bearing = QString::fromLatin1(row->bearing);
-    station.nrq = QString::fromLatin1(row->NRQ);
-    station.path = QString::fromLatin1(row->node_path_ptr ? row->node_path_ptr : "");
-    station.dataVia = row->data_via; station.direct = row->flag & ST_DIRECT;
-    station.heardAt = row->sec_heard;
-    if (row->weather_data) station.weather = *row->weather_data;
-    if (row->comment_data) station.comment = QString::fromLatin1(row->comment_data->text_ptr);
+    const auto station = project(row);
     stations_.insert(station.callsign, station);
   }
 }
@@ -126,7 +133,11 @@ bool StationModel::upsert(Station station, QString *error)
   // A configured local position has priority over an RF echo of that callsign.
   const auto name = station.callsign.toUtf8(); DataRow *row = nullptr;
   xastir_search_station_name(database_.get(), &row, const_cast<char *>(name.constData()), 1);
-  if (row && (row->flag & ST_MYSTATION) && !station.local) return true;
+  if (row && (row->flag & ST_MYSTATION) && !station.local) {
+    stations_.insert(station.callsign, project(row));
+    emit stationsChanged();
+    return true;
+  }
   if (row && station.kind != StationKind::Station && station.sourceStation == ownCallsign_ && !ownCallsign_.isEmpty()) row->flag |= ST_MYOBJITEM;
   else if (row) row->flag &= ~ST_MYOBJITEM;
   if (row && tactical_.contains(station.callsign)) {
@@ -137,7 +148,7 @@ bool StationModel::upsert(Station station, QString *error)
       if (row->tactical_call_sign) std::memcpy(row->tactical_call_sign, name.constData(), size_t(name.size()) + 1);
     }
   }
-  stations_.insert(station.callsign, station);
+  if (row) stations_.insert(station.callsign, project(row));
   emit stationsChanged();
   return true;
 }
@@ -216,9 +227,7 @@ void StationModel::setTactical(const QMap<QString, QString> &names)
 bool StationModel::remove(const QString &name, StationKind kind)
 {
   const auto key = (kind == StationKind::Station ? name.trimmed().toUpper() : name.trimmed()).toUtf8();
-  DataRow *row = nullptr;
-  if (!xastir_search_station_name(database_.get(), &row, const_cast<char *>(key.constData()), 1)) return false;
-  xastir_station_del_ptr(database_.get(), row);
+  if (!xastir_station_remove(database_.get(), key.constData(), int(kind))) return false;
   stations_.remove(QString::fromUtf8(key));
   emit stationsChanged();
   return true;
