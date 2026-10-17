@@ -28,6 +28,9 @@ typedef struct {
 int xastir_station_update(XastirStationDb *db, const XastirStationReport *report, time_t now);
 /* Remove only a matching entity kind; an object kill must not delete a station. */
 int xastir_station_remove(XastirStationDb *db, const char *name, int kind);
+/* APRS '>' report body (without the type byte), stored using legacy bounded
+ * status history. Does not create or alter a position. now is reception time. */
+int xastir_station_status(XastirStationDb *db, const char *name, const char *text, time_t now);
 void xastir_station_db_init(XastirStationDb *db, time_t now);
 DataRow *xastir_station_upsert(XastirStationDb *db, const char *name, time_t now);
 void xastir_station_touch(XastirStationDb *db, DataRow *row, time_t now);

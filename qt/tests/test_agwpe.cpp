@@ -127,6 +127,12 @@ void TestAgwpe::transport() {
   peer->write(frame(raw(";OBJECT   *092345z4903.50N/07201.75W-")));
   QTRY_COMPARE(model.stations().size(), 2);
   peer->write(frame(raw(";OBJECT   _092345z"))); QTRY_COMPARE(model.stations().size(), 1);
+  peer->write(frame(raw(">171234zReady over RF")));
+  QTRY_VERIFY(model.record("TEST")->status_data);
+  QCOMPARE(QString::fromLatin1(model.record("TEST")->status_data->text_ptr), QString("Ready over RF"));
+  QCOMPARE(model.record("TEST")->data_via, 'T');
+  QVERIFY(model.record("TEST")->flag & ST_DIRECT);
+  QCOMPARE(peer->bytesAvailable(), qint64(0));
   client.stop(); QTRY_COMPARE(peer->state(), QAbstractSocket::UnconnectedState);
   QVERIFY(!server.hasPendingConnections());
 }

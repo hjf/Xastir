@@ -6,11 +6,13 @@
 #include "interface_control.h"
 #include "main_window.h"
 #include "message_service.h"
+#include "station_details.h"
 #include <QAction>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QLineEdit>
+#include <QLabel>
 #include <QPushButton>
 #include <QSettings>
 #include <QSignalSpy>
@@ -139,11 +141,40 @@ private slots:
     peer->write("OWNER>APRS,qAR,GATE:;Aid Point*092345z4903.50N/07201.75Wh\r\n");
     QTRY_VERIFY(stations.record("Aid Point"));
     QVERIFY(stations.record("Aid Point")->flag & ST_OBJECT);
+    peer->write("REMOTE>APRS,qAR,GATE:>171234zReady for traffic\r\n");
+    QTRY_VERIFY(stations.record("REMOTE")->status_data);
+    QCOMPARE(QString::fromLatin1(stations.record("REMOTE")->status_data->text_ptr),
+             QString("Ready for traffic"));
+    QVERIFY(stations.record("REMOTE")->position_valid);
+    QVERIFY(!(stations.record("REMOTE")->flag & ST_DIRECT));
     QCOMPARE(peer->bytesAvailable(),
              qint64(0)); // Receive-only client emits no APRS frames or RF traffic.
     peer->write(QByteArray(512, 'x'));
     QTRY_VERIFY(!client.connected());
     client.stop();
+  }
+  void statusDetailsUpdate()
+  {
+    ApplicationOptions options;
+    MainWindow window(options);
+    auto *stations = window.stationModel();
+    stations->applyPacket("REMOTE>APRS:>171234zReady <b>literally</b>", 'T', 100);
+    auto *details = window.findChild<StationDetails *>();
+    QVERIFY(details);
+    details->open("REMOTE");
+    auto *label = window.findChild<QLabel *>("stationDetailsText");
+    QVERIFY(label);
+    QCOMPARE(label->textFormat(), Qt::PlainText);
+    QVERIFY(label->text().contains("Position: not yet received"));
+    QVERIFY(label->text().contains("Ready <b>literally</b>"));
+    QVERIFY(label->text().contains(QDateTime::fromSecsSinceEpoch(100).toString(Qt::ISODate)));
+    stations->applyPacket("REMOTE>APRS:!4903.50N/07201.75W>090/010", 'T', 101);
+    QVERIFY(!label->text().contains("not yet received"));
+    QVERIFY(label->text().contains("49.05833"));
+    stations->applyPacket("REMOTE>APRS:>Busy", 'T', 102);
+    QVERIFY(label->text().contains("Busy"));
+    QVERIFY(label->text().contains("Ready <b>literally</b>"));
+    QCOMPARE(stations->stations().value("REMOTE").course.value(), 90.0);
   }
   void internetMessagesAndAcks()
   {

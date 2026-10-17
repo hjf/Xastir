@@ -72,7 +72,16 @@ private slots:
     file.write(QJsonDocument(QJsonObject{{"timestamp", timestamp},
       {"packet", QString::fromLatin1(QByteArray("REMOTE>APRS:!4903.50N/07201.75W>recorded").toBase64())}})
       .toJson(QJsonDocument::Compact) + '\n');
+    file.write(QJsonDocument(QJsonObject{{"timestamp", timestamp + 1000},
+      {"packet", QString::fromLatin1(QByteArray("REMOTE>APRS:>171234zRecorded status").toBase64())}})
+      .toJson(QJsonDocument::Compact) + '\n');
     file.close();
+    int transmissions = 0;
+    window.messageService()->setTransport([&](const auto &, int, const auto &, auto *) {
+      ++transmissions; return true;
+    });
+    window.messageService()->setAutoReplyText("away");
+    window.messageService()->setAutoReply(true);
     auto *action = window.findChild<QAction *>("PULDNFI002");
     QVERIFY(action && action->property("implemented").toBool());
     action->trigger();
@@ -84,7 +93,12 @@ private slots:
     chooser->close();
     auto *monitor = window.findChild<PacketMonitor *>();
     QTRY_VERIFY(!monitor->replaying());
-    QCOMPARE(window.stationModel()->stations().value("REMOTE").heardAt, timestamp / 1000);
+    QCOMPARE(window.stationModel()->stations().value("REMOTE").heardAt, (timestamp + 1000) / 1000);
+    const auto *row = window.stationModel()->record("REMOTE");
+    QVERIFY(row && row->status_data);
+    QCOMPARE(QString::fromLatin1(row->status_data->text_ptr), QString("Recorded status"));
+    QCOMPARE(qint64(row->status_data->sec_heard), (timestamp + 1000) / 1000);
+    QCOMPARE(transmissions, 0);
     QVERIFY(window.messageService()->messages().isEmpty());
   }
   void fileMenuCancelDoesNotReplay() {

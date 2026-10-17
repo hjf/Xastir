@@ -41,6 +41,36 @@ class HistoryTest : public QObject
 {
   Q_OBJECT
 private slots:
+  void restoreStatusWithoutTransmitting()
+  {
+    QTemporaryDir dir;
+    HistoryOptions options; options.path = dir.filePath("status.sqlite");
+    const auto recorded = QDateTime::currentMSecsSinceEpoch() - 86400000;
+    {
+      HistoryStore store(options); QVERIFY(store.open());
+      store.recordPacket("REMOTE>APRS:>171234zAvailable", 0, recorded);
+      store.recordPacket(position, 0, recorded + 1000);
+      store.recordPacket("GATE>APRS:}REMOTE>APRS:>Busy", 256, recorded + 2000);
+      store.recordPacket("UNKNOWN>APRS:>Waiting for GPS", 256, recorded + 3000);
+    }
+    HistoryStore store(options); QVERIFY(store.open());
+    StationModel stations; MessageService messages("LOCAL");
+    int transmissions = 0;
+    messages.setTransport([&](const auto &, int, const auto &, auto *) { ++transmissions; return true; });
+    messages.setAutoReplyText("away"); messages.setAutoReply(true);
+    QVERIFY(store.restore(&stations, &messages));
+    QCOMPARE(transmissions, 0);
+    QVERIFY(messages.messages().isEmpty());
+    const auto *row = stations.record("REMOTE"); QVERIFY(row && row->status_data);
+    QCOMPARE(QString::fromLatin1(row->status_data->text_ptr), QString("Busy"));
+    QCOMPARE(qint64(row->status_data->sec_heard), (recorded + 2000) / 1000);
+    QVERIFY(row->status_data->next);
+    QCOMPARE(qint64(row->status_data->next->sec_heard), recorded / 1000);
+    QCOMPARE(row->data_via, 'I');
+    QVERIFY(row->position_valid);
+    QVERIFY(stations.record("UNKNOWN") && !stations.record("UNKNOWN")->position_valid);
+    QVERIFY(!stations.stations().contains("UNKNOWN"));
+  }
   void restartAndRetention()
   {
     QTemporaryDir dir;

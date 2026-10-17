@@ -18,6 +18,9 @@ typedef struct {
 } XastirPosition;
 /* info starts after the Mic-E data type byte. Returns 1 on success. */
 int xastir_expand_mice(const char *destination, const char *info, char *expanded, size_t capacity, int *emergency);
+/* Remove a leading legacy APRS timestamp in place. Weather uses MMDDHHMM;
+ * other reports use DDHHMMz, DDHHMM/ or HHMMSSh. No calendar conversion. */
+int xastir_extract_timestamp(char *data, int positionless_weather);
 void xastir_overlay_symbol(char symbol, char table, XastirPosition *position);
 int xastir_decode_dao(int *lat, int *lon, char *datum, char *comment);
 int xastir_extract_position(XastirPosition *position, char **info, int grid);

@@ -29,6 +29,32 @@ int main(void)
     CHECK(consistent(a));
   }
   CHECK(b->count == 0);
+  CHECK(xastir_station_status(b, "STATUS", "171234z  Ready  ", 90));
+  DataRow *status = NULL;
+  CHECK(xastir_search_station_name(b, &status, "STATUS", 1));
+  CHECK(!status->position_valid && (status->flag & ST_STATUS));
+  CHECK(strcmp(status->status_data->text_ptr, "Ready") == 0);
+  CHECK(status->status_data->sec_heard == 90);
+  CHECK(xastir_station_status(b, "STATUS", "ready", 91));
+  CHECK(status->status_data->next == NULL && status->status_data->sec_heard == 91);
+  for (int i = 0; i < 30; ++i) {
+    char text[32]; snprintf(text, sizeof(text), "Status %d", i);
+    CHECK(xastir_station_status(b, "STATUS", text, 100+i));
+  }
+  int statuses = 0;
+  for (CommentRow *s = status->status_data; s; s = s->next) ++statuses;
+  CHECK(statuses == MAX_STATUS_LINES);
+  CHECK(xastir_station_status(b, "STATUS", "Status 20", 140));
+  CHECK(strcmp(status->status_data->text_ptr, "Status 20") == 0);
+  CHECK(status->status_data->sec_heard == 140);
+  statuses = 0;
+  for (CommentRow *s = status->status_data; s; s = s->next) ++statuses;
+  CHECK(statuses == MAX_STATUS_LINES);
+  char oversized[514]; memset(oversized, 'x', sizeof(oversized)); oversized[513] = 0;
+  CHECK(!xastir_station_status(b, "STATUS", oversized, 150));
+  CHECK(!xastir_station_status(b, "STATUS", "bad\nline", 150));
+  CHECK(!xastir_station_status(b, "BAD NAME", "Ready", 150));
+  CHECK(status->sec_heard == 140 && consistent(b));
   DataRow *row = NULL;
   CHECK(xastir_search_station_name(a, &row, "T0001", 1));
   CHECK(xastir_get_weather_record(row));
@@ -53,6 +79,8 @@ int main(void)
   CHECK(xastir_search_station_name(b, &row, "Park", 1));
   CHECK(row->flag & ST_OBJECT); CHECK(row->heading == 45.25);
   CHECK(strcmp(row->origin, "OWNER") == 0);
+  CHECK(!xastir_station_status(b, "Park", "Wrong kind", 110));
+  CHECK(row->sec_heard == 100 && !row->status_data);
   report.longitude = -58.90; CHECK(xastir_station_update(b, &report, 200));
   CHECK(row->oldest_trackpoint && row->oldest_trackpoint->sec == 100);
   CHECK(row->newest_trackpoint->sec == 200);

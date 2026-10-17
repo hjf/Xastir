@@ -5,6 +5,28 @@
 #define CHECK(condition) do { if (!(condition)) { fprintf(stderr, "line %d: %s\n", __LINE__, #condition); return 1; } } while (0)
 int main(void)
 {
+  char timestamp[64];
+  const char *prefixes[] = {"171234z", "171234Z", "171234/", "123456h", "123456H"};
+  for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); ++i) {
+    snprintf(timestamp, sizeof(timestamp), "%sReady", prefixes[i]);
+    CHECK(xastir_extract_timestamp(timestamp, 0));
+    CHECK(strcmp(timestamp, "Ready") == 0);
+  }
+  for (int n = 0; n < 7; ++n) {
+    strcpy(timestamp, "171234z"); timestamp[n] = 0;
+    CHECK(!xastir_extract_timestamp(timestamp, 0));
+    CHECK(strlen(timestamp) == (size_t)n);
+  }
+  strcpy(timestamp, "171234z");
+  CHECK(xastir_extract_timestamp(timestamp, 0) && !timestamp[0]);
+  strcpy(timestamp, "17x234zReady");
+  CHECK(!xastir_extract_timestamp(timestamp, 0));
+  CHECK(strcmp(timestamp, "17x234zReady") == 0);
+  strcpy(timestamp, "10171234c090s010");
+  CHECK(xastir_extract_timestamp(timestamp, 1));
+  CHECK(strcmp(timestamp, "c090s010") == 0);
+  strcpy(timestamp, "10171234");
+  CHECK(!xastir_extract_timestamp(timestamp, 1));
   char beacon[128];
   CHECK(xastir_build_position_beacon(49+3.5/60,-(72+1.75/60),'/', '>',"hi",beacon,sizeof(beacon)));
   CHECK(strcmp(beacon,"=4903.50N/07201.75W>hi")==0);

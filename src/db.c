@@ -5413,67 +5413,8 @@ void extract_area(DataRow *p_station, char *data)
  */
 int extract_time(DataRow * UNUSED(p_station), char *data, int type)
 {
-  int len, i;
-  int ok = 0;
-
-  // todo: better check of time data ranges
-  len = (int)strlen(data);
-  if (type == APRS_WX2)
-  {
-    // 8 digit time from stand-alone positionless weather stations...
-    if (len > 8)
-    {
-      // MMDDHHMM   zulu time
-      // MM 01-12         todo: better check of time data ranges
-      // DD 01-31
-      // HH 01-23
-      // MM 01-59
-      ok = 1;
-      for (i=0; ok && i<8; i++)
-        if (!isdigit((int)data[i]))
-        {
-          ok = 0;
-        }
-      if (ok)
-      {
-        //                substr(p_station->station_time,data+2,6);
-        //                p_station->station_time_type = 'z';
-        for (i=0; i<=len-8; i++)       // delete time from data
-        {
-          data[i] = data[i+8];
-        }
-      }
-    }
-  }
-  else
-  {
-    if (len > 6)
-    {
-      // Status messages only with optional zulu format
-      // DK7IN: APRS ref says one of 'z' '/' 'h', but I found 'c' at HB9TJM-8   ???
-      if (toupper(data[6])=='Z' || data[6]=='/' || toupper(data[6])=='H')
-      {
-        ok = 1;
-      }
-      for (i=0; ok && i<6; i++)
-        if (!isdigit((int)data[i]))
-        {
-          ok = 0;
-        }
-      if (ok)
-      {
-        //                substr(p_station->station_time,data,6);
-        //                p_station->station_time_type = data[6];
-        for (i=0; i<=len-7; i++)       // delete time from data
-        {
-          data[i] = data[i+7];
-        }
-      }
-    }
-  }
-  return(ok);
+  return xastir_extract_timestamp(data, type == APRS_WX2);
 }
-
 
 
 

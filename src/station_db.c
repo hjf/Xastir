@@ -23,6 +23,7 @@
 
 /* Station storage and ancillary record ownership extracted from db.c. */
 #include "station_db.h"
+#include "aprs_position.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -1809,6 +1810,29 @@ int xastir_station_update(XastirStationDb *db, const XastirStationReport *r, tim
                             row->altitude, row->speed, row->course, row->flag);
   /* Keep trail ownership bounded even for continuously moving stations. */
   xastir_expire_trail_points(db, row, 3600);
+  ++row->num_packets;
+  return 1;
+}
+
+int xastir_station_status(XastirStationDb *db, const char *name, const char *text, time_t now)
+{
+  if (!db || !name || !*name || strlen(name) >= XASTIR_STATION_NAME_SIZE
+      || !text || strlen(text) > 512) return 0;
+  for (const unsigned char *p = (const unsigned char *)name; *p; ++p)
+    if (*p <= 32 || *p >= 127) return 0;
+  for (const unsigned char *p = (const unsigned char *)text; *p; ++p)
+    if (*p < 32 || *p == 127) return 0;
+  DataRow *row = NULL;
+  if (xastir_search_station_name(db, &row, (char *)name, 1)
+      && (row->flag & (ST_OBJECT | ST_ITEM))) return 0;
+  row = xastir_station_upsert(db, name, now);
+  if (!row) return 0;
+  char status[513];
+  snprintf(status, sizeof(status), "%s", text);
+  xastir_extract_timestamp(status, 0);
+  xastir_add_status(db, row, status);
+  row->flag |= ST_ACTIVE | ST_STATUS;
+  row->record_type = NORMAL_APRS;
   ++row->num_packets;
   return 1;
 }

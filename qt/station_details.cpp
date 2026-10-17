@@ -10,6 +10,7 @@
 #include <QLabel>
 #include <QMainWindow>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QVBoxLayout>
 StationDetails::StationDetails(QMainWindow *w, StationModel *s, MapWidget *m, StationNavigator *n,
                                MessageUi *messages, QString own)
@@ -34,7 +35,11 @@ void StationDetails::open(const QString &name)
     text_->setTextFormat(Qt::PlainText);
     text_->setWordWrap(true);
     text_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    layout->addWidget(text_);
+    auto *scroll = new QScrollArea(dialog_);
+    scroll->setWidgetResizable(true);
+    scroll->setWidget(text_);
+    text_->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    layout->addWidget(scroll);
     auto *buttons = new QHBoxLayout;
     layout->addLayout(buttons);
     auto add = [&](const QString &label, auto callback)
@@ -87,10 +92,13 @@ void StationDetails::refresh()
     lines << tr("Owner: %1").arg(QString::fromLatin1(r->origin));
   lines << tr("Last heard: %1")
                .arg(QDateTime::fromSecsSinceEpoch(r->sec_heard).toString(Qt::ISODate));
-  lines << tr("Position: %1°, %2°")
+  if (r->position_valid)
+    lines << tr("Position: %1°, %2°")
                .arg(station.position.latitude, 0, 'f', 5)
                .arg(station.position.longitude, 0, 'f', 5);
-  if (stations_->stations().contains(own_))
+  else
+    lines << tr("Position: not yet received");
+  if (r->position_valid && stations_->stations().contains(own_))
   {
     const auto local = stations_->stations().value(own_);
     double bearing = 0;
@@ -112,6 +120,11 @@ void StationDetails::refresh()
   for (auto *c = r->comment_data; c; c = c->next)
     if (c->text_ptr)
       lines << tr("Comment: %1").arg(QString::fromUtf8(c->text_ptr));
+  for (auto *s = r->status_data; s; s = s->next)
+    if (s->text_ptr)
+      lines << tr("Status (%1): %2")
+        .arg(QDateTime::fromSecsSinceEpoch(s->sec_heard).toString(Qt::ISODate),
+             QString::fromLatin1(s->text_ptr));
   if (r->weather_data)
   {
     const auto *wx = r->weather_data;

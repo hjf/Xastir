@@ -121,6 +121,20 @@ std::optional<AprsWeatherUpdate> decodeAprsWeather(const QByteArray &packet, int
     depth == 0 && !packet.mid(arrow + 1,colon - arrow - 1).contains('*')};
   xastir_delete_weather(&row); return result;
 }
+std::optional<AprsStatusUpdate> decodeAprsStatus(const QByteArray &packet, int depth)
+{
+  if (depth > 4 || packet.size() > 4096 || packet.contains('\0')
+      || packet.contains('\r') || packet.contains('\n')) return {};
+  const int arrow = packet.indexOf('>'), colon = packet.indexOf(':', arrow + 1);
+  if (arrow <= 0 || colon <= arrow + 1) return {};
+  const auto data = packet.mid(colon + 1);
+  if (data.startsWith('}')) return decodeAprsStatus(data.mid(1), depth + 1);
+  if (!data.startsWith('>') || data.size() > 513) return {};
+  const auto path = packet.mid(arrow + 1, colon - arrow - 1);
+  return AprsStatusUpdate{QString::fromLatin1(packet.left(arrow)).trimmed().toUpper(),
+    QString::fromLatin1(path), data.mid(1), depth == 0 && !path.contains('*')};
+}
+
 QByteArray decodeAgwpeAx25(const QByteArray &payload)
 {
   int offset = 1;

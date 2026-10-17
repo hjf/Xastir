@@ -5,4 +5,6 @@ struct AprsUpdate { Station station; bool removed = false; };
 std::optional<AprsUpdate> decodeAprs(const QByteArray &packet, int depth = 0);
 struct AprsWeatherUpdate { QString callsign; WeatherRow weather; bool direct; };
 std::optional<AprsWeatherUpdate> decodeAprsWeather(const QByteArray &packet, int depth = 0);
+struct AprsStatusUpdate { QString callsign, path; QByteArray text; bool direct; };
+std::optional<AprsStatusUpdate> decodeAprsStatus(const QByteArray &packet, int depth = 0);
 QByteArray decodeAgwpeAx25(const QByteArray &payload);

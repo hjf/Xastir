@@ -51,6 +51,20 @@ bool StationModel::validate(Station &station, QString *error)
 }
 
 namespace {
+void reception(DataRow *row, char dataVia, bool direct, const QString &path = {})
+{
+  row->data_via = dataVia;
+  if (dataVia == 'T') row->flag |= ST_VIATNC;
+  if (direct) { row->flag |= ST_DIRECT; row->direct_heard = row->sec_heard; }
+  const auto bytes = path.toLatin1();
+  if (!bytes.isEmpty()) {
+    auto *replacement = static_cast<char *>(std::malloc(size_t(bytes.size()) + 1));
+    if (replacement) {
+      std::memcpy(replacement, bytes.constData(), size_t(bytes.size()) + 1);
+      std::free(row->node_path_ptr); row->node_path_ptr = replacement;
+    }
+  }
+}
 bool store(XastirStationDb *database, const Station &station)
 {
   const auto name = station.callsign.toUtf8(), source = station.sourceStation.toUtf8();
@@ -64,9 +78,7 @@ bool store(XastirStationDb *database, const Station &station)
   DataRow *row = nullptr;
   xastir_search_station_name(database, &row, const_cast<char *>(name.constData()), 1);
   if (!row || ((row->flag & ST_MYSTATION) && !station.local)) return true;
-  row->data_via = station.dataVia;
-  if (station.dataVia == 'T') row->flag |= ST_VIATNC;
-  if (station.direct) { row->flag |= ST_DIRECT; row->direct_heard = row->sec_heard; }
+  reception(row, station.dataVia, station.direct, station.path);
   if (station.weather && xastir_get_weather_record(row)) *row->weather_data = *station.weather;
   auto copy = [](char *out, size_t size, const QString &value) {
     const auto bytes = value.toLatin1(); std::snprintf(out, size, "%s", bytes.constData());
@@ -75,11 +87,6 @@ bool store(XastirStationDb *database, const Station &station)
   if (!station.signalGain.isEmpty()) copy(row->signal_gain, sizeof(row->signal_gain), station.signalGain);
   if (!station.bearing.isEmpty()) copy(row->bearing, sizeof(row->bearing), station.bearing);
   if (!station.nrq.isEmpty()) copy(row->NRQ, sizeof(row->NRQ), station.nrq);
-  const auto path = station.path.toLatin1();
-  if (!path.isEmpty()) {
-    auto *replacement = static_cast<char *>(std::malloc(size_t(path.size()) + 1));
-    if (replacement) { std::memcpy(replacement, path.constData(), size_t(path.size()) + 1); std::free(row->node_path_ptr); row->node_path_ptr = replacement; }
-  }
   return true;
 }
 }
@@ -205,10 +212,9 @@ void StationModel::updateWeather(const QString &name, const WeatherRow &weather,
   const auto bytes = check.callsign.toUtf8();
   auto *row = xastir_station_upsert(database_.get(),bytes.constData(),heardAt ? heardAt : QDateTime::currentSecsSinceEpoch());
   if (!row || !xastir_get_weather_record(row)) return;
-  *row->weather_data = weather; row->data_via = dataVia;
+  *row->weather_data = weather;
   row->flag |= ST_ACTIVE;
-  if (dataVia == 'T') row->flag |= ST_VIATNC;
-  if (direct) { row->flag |= ST_DIRECT; row->direct_heard = row->sec_heard; }
+  reception(row, dataVia, direct);
   ++row->num_packets;
   refreshProjection(); emit stationsChanged();
 }
@@ -307,6 +313,16 @@ void StationModel::applyPacket(const QByteArray &packet,char dataVia,qint64 hear
     if(station.weather && heardAt) station.weather->wx_sec_time=heardAt;
     if(update->removed)remove(station.callsign,station.kind);
     else upsert(station);
+  } else if (const auto status = decodeAprsStatus(packet)) {
+    // Preserve non-ASCII input for the core to reject. Latin-1 conversion can
+    // replace an uppercased Unicode character with '?', changing the key.
+    const auto name = status->callsign.toUtf8();
+    if (!xastir_station_status(database_.get(), name.constData(), status->text.constData(),
+                               heardAt ? heardAt : QDateTime::currentSecsSinceEpoch())) return;
+    auto *row = const_cast<DataRow *>(record(status->callsign));
+    reception(row, dataVia, dataVia != 'I' && status->direct, status->path);
+    if (row->position_valid) stations_.insert(status->callsign, project(row));
+    emit stationsChanged();
   } else {
     const auto weather=decodeAprsWeather(packet);
     if(weather) {auto value=weather->weather;if(heardAt)value.wx_sec_time=heardAt;

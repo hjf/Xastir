@@ -1258,3 +1258,20 @@ int xastir_build_position_beacon(double latitude, double longitude, char table,
   snprintf(position,sizeof(position),"%s%c%s%c",lat,table,lon,symbol);
   return xastir_format_fixed_position(out,capacity,'=',position,"","",comment,0);
 }
+
+/* Extracted from db.c:extract_time. Preserve the legacy timestamp recognition
+ * and stripping rules; reception time remains the station/history clock. */
+int xastir_extract_timestamp(char *data, int positionless_weather)
+{
+  if (!data) return 0;
+  const size_t length = strlen(data);
+  const size_t digits = positionless_weather ? 8 : 6;
+  const size_t prefix = positionless_weather ? 8 : 7;
+  if (length < prefix || (positionless_weather && length == prefix)) return 0;
+  if (!positionless_weather && data[6] != '/' && toupper((unsigned char)data[6]) != 'Z'
+      && toupper((unsigned char)data[6]) != 'H') return 0;
+  for (size_t i = 0; i < digits; ++i)
+    if (data[i] < '0' || data[i] > '9') return 0;
+  memmove(data, data + prefix, length - prefix + 1);
+  return 1;
+}

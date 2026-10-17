@@ -24,6 +24,32 @@ private slots:
     QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,settingsDirectory_.path());
   }
   void init() { QSettings().clear(); }
+  void statusPackets()
+  {
+    StationModel stations;
+    stations.applyPacket("REMOTE>APRS:>171234z Ready ", 'T', 100);
+    const auto *row = stations.record("REMOTE"); QVERIFY(row && row->status_data);
+    QCOMPARE(QString::fromLatin1(row->status_data->text_ptr), QString("Ready"));
+    QVERIFY(!stations.stations().contains("REMOTE"));
+    stations.applyPacket("REMOTE>APRS:!4903.50N/07201.75W>090/010", 'T', 101);
+    const auto position = stations.stations().value("REMOTE").position;
+    stations.applyPacket("GATE>APRS:}REMOTE>APRS:>Busy", 'I', 102);
+    QCOMPARE(QString::fromLatin1(row->status_data->text_ptr), QString("Busy"));
+    QCOMPARE(stations.stations().value("REMOTE").position.latitude, position.latitude);
+    QCOMPARE(stations.stations().value("REMOTE").heardAt, qint64(102));
+    stations.applyPacket("GATE>APRS:}REMOTE>APRS:>ready", 'I', 103);
+    QCOMPARE(QString::fromLatin1(row->status_data->text_ptr), QString("ready"));
+    QVERIFY(row->status_data->next && !row->status_data->next->next);
+    const char embeddedNul[] = "REMOTE>APRS:>bad\0line";
+    for (const auto &packet : {QByteArray("REMOTE>APRS:>bad\nline"),
+                              QByteArray(embeddedNul, sizeof(embeddedNul) - 1),
+                              QByteArray("REMOTE>APRS:>") + QByteArray(513, 'x'),
+                              QByteArray("G>APRS:}G>APRS:}G>APRS:}G>APRS:}G>APRS:}REMOTE>APRS:>Too deep")})
+      stations.applyPacket(packet, 'T', 200);
+    QCOMPARE(qint64(row->sec_heard), qint64(103));
+    stations.applyPacket(QByteArray("\xff>APRS:>Invalid source"), 'T', 200);
+    QCOMPARE(stations.database()->count, 1);
+  }
   void projectionRetainsStoredMetadata() {
     StationModel stations;
     stations.applyPacket("WX>APRS:_10091300c180s005g010t032h50b10000", 'T', 100);
