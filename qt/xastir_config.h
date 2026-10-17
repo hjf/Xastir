@@ -2,6 +2,7 @@
 #pragma once
 #include "station_model.h"
 #include "station_view.h"
+#include "timing_settings.h"
 #include <QList>
 struct AgwpeSettings {
   QString host;
@@ -23,12 +24,6 @@ struct AprsisSettings {
   bool reconnect = true;
   bool transmitEnabled = false;
   QString passcode;
-};
-struct TimingSettings {
-  int clearSeconds = 3600;
-  int aircraftSeconds = 0;
-  int deadReckoningSeconds = 600;
-  int beaconSeconds = 300;
 };
 struct XastirConfig {
   TimingSettings timing;

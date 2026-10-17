@@ -13,7 +13,14 @@ typedef struct XastirStationDb {
   int count, tracked, next_serial;
   time_t now;
   int segment_distance, segment_minutes, skip_duplicates, non_ascii_names;
+  time_t trail_seconds;
 } XastirStationDb;
+/* Zero-initialize to start a sweep. The name cursor survives station changes
+ * between batches; no DataRow pointer is retained by the caller. */
+typedef struct {
+  char after_name[XASTIR_STATION_NAME_SIZE];
+  int removed, trails_changed; /* Results of the most recent batch. */
+} XastirStationMaintenance;
 typedef struct {
   const char *name, *source;
   double latitude, longitude, course;
@@ -35,6 +42,11 @@ void xastir_station_db_init(XastirStationDb *db, time_t now);
 DataRow *xastir_station_upsert(XastirStationDb *db, const char *name, time_t now);
 void xastir_station_touch(XastirStationDb *db, DataRow *row, time_t now);
 void xastir_station_expire(XastirStationDb *db, time_t before);
+/* Legacy removal exemptions and trail expiry, at most limit stations per call.
+ * Returns nonzero while more stations remain. Ages and limit must be positive.
+ * On completion the cursor resets, ready for a new sweep. */
+int xastir_station_maintain(XastirStationDb *db, XastirStationMaintenance *state,
+                           time_t now, time_t remove_seconds, time_t trail_seconds, int limit);
 void xastir_init_station(XastirStationDb *db, DataRow *p_station);
 void xastir_remove_name(XastirStationDb *db, DataRow *p_rem);
 void xastir_remove_time(XastirStationDb *db, DataRow *p_rem);

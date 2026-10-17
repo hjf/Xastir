@@ -142,6 +142,15 @@ private slots:
       QVERIFY(pending.retryable);
       QVERIFY(pending.status.contains("Interrupted"));
       const auto oldId = pending.id;
+      auto *cleanup = stations.findChild<QTimer *>("stationMaintenanceTimer");
+      QVERIFY(cleanup && QMetaObject::invokeMethod(cleanup, "timeout"));
+      QTRY_VERIFY(!stations.record("REMOTE"));
+      QVERIFY(!stations.record("NET"));
+      QCOMPARE(transmissions, 0);
+      QCOMPARE(service.messages().size(), 2);
+      QCOMPARE(service.messages().last().id, oldId);
+      QCOMPARE(store.messages("LOCAL").size(), 2);
+      QCOMPARE(store.packets().size(), 6);
       QString error;
       QVERIFY(service.sendMessage("REMOTE", "new", false, 0, "", &error));
       QVERIFY(service.messages().last().key > pending.key);

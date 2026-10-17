@@ -1713,6 +1713,7 @@ void xastir_station_db_init(XastirStationDb *db, time_t now)
   db->now = now;
   db->segment_distance = 1;
   db->segment_minutes = 30;
+  db->trail_seconds = 3600;
 }
 void xastir_station_touch(XastirStationDb *db, DataRow *row, time_t now)
 {
@@ -1747,6 +1748,38 @@ void xastir_station_expire(XastirStationDb *db, time_t before)
     if (!(row->flag & (ST_MYSTATION | ST_MYOBJITEM))) xastir_station_del_ptr(db, row);
     row = next;
   }
+}
+
+int xastir_station_maintain(XastirStationDb *db, XastirStationMaintenance *state,
+                           time_t now, time_t remove_seconds, time_t trail_seconds, int limit)
+{
+  if (!db || !state) return 0;
+  state->removed = state->trails_changed = 0;
+  if (remove_seconds <= 0 || trail_seconds <= 0 || limit <= 0) return 0;
+  DataRow *row = db->first;
+  if (state->after_name[0]
+      && xastir_search_station_name(db, &row, state->after_name, 1)) row = row->n_next;
+  db->now = now;
+  while (row && limit-- > 0) {
+    DataRow *next = row->n_next;
+    snprintf(state->after_name, sizeof(state->after_name), "%s", row->call_sign);
+    /* check_station_remove in db.c exempts our station and our objects/items.
+     * Message archives are owned separately and must not be expired here. */
+    if (row->sec_heard < now - remove_seconds
+        && !(row->flag & (ST_MYSTATION | ST_MYOBJITEM))) {
+      xastir_station_del_ptr(db, row);
+      ++state->removed;
+    } else {
+      TrackRow *oldest = row->oldest_trackpoint;
+      if (oldest && oldest->sec < now - trail_seconds) {
+        xastir_expire_trail_points(db, row, trail_seconds);
+        ++state->trails_changed;
+      }
+    }
+    row = next;
+  }
+  if (!row) state->after_name[0] = 0;
+  return row != NULL;
 }
 
 int xastir_station_update(XastirStationDb *db, const XastirStationReport *r, time_t now)
@@ -1809,7 +1842,7 @@ int xastir_station_update(XastirStationDb *db, const XastirStationReport *r, tim
     xastir_store_trail_point(db, row, row->coord_lon, row->coord_lat, now,
                             row->altitude, row->speed, row->course, row->flag);
   /* Keep trail ownership bounded even for continuously moving stations. */
-  xastir_expire_trail_points(db, row, 3600);
+  xastir_expire_trail_points(db, row, db->trail_seconds);
   ++row->num_packets;
   return 1;
 }

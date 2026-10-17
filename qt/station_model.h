@@ -2,9 +2,11 @@
 #pragma once
 
 #include "map_projection.h"
-#include "database.h"
+#include "station_db.h"
+#include "timing_settings.h"
 #include <QMap>
 #include <QObject>
+#include <QTimer>
 #include <optional>
 #include <memory>
 struct XastirStationDb;
@@ -55,14 +57,21 @@ public:
   bool importTrail(const QList<Station> &points, QString *error = nullptr);
   void updateWeather(const QString &name, const WeatherRow &weather, char dataVia, bool direct, qint64 heardAt = 0);
   void setOwnCallsign(const QString &callsign) { ownCallsign_ = callsign; }
+  void setTiming(const TimingSettings &timing);
 
 signals:
   void stationsChanged();
 
 private:
   void refreshProjection();
+  void startMaintenance();
+  void maintainBatch();
   std::unique_ptr<XastirStationDb> database_;
   QMap<QString, Station> stations_; // Read-only Qt projection of the C database.
   QMap<QString, QString> tactical_;
   QString ownCallsign_;
+  int removeSeconds_ = 7200;
+  time_t maintenanceNow_ = 0;
+  XastirStationMaintenance maintenance_{};
+  QTimer maintenanceTimer_, maintenanceBatchTimer_;
 };

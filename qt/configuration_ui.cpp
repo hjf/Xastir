@@ -17,8 +17,10 @@
 #include <QMainWindow>
 #include <QMessageBox>
 #include <QSettings>
+#include <QScrollArea>
 #include <QSpinBox>
 #include <QStatusBar>
+#include <QVBoxLayout>
 
 ConfigurationUi::ConfigurationUi(QMainWindow *window, MapWidget *map, PacketMonitor *monitor,
                                  BeaconControl *beacons, SnapshotControl *snapshots, const XastirConfig &config)
@@ -34,6 +36,9 @@ ConfigurationUi::ConfigurationUi(QMainWindow *window, MapWidget *map, PacketMoni
   value.clearSeconds = bounded("timing/clearSeconds", value.clearSeconds, 1, 604800);
   value.aircraftSeconds = bounded("timing/aircraftSeconds", value.aircraftSeconds, 0, 604800);
   value.deadReckoningSeconds = bounded("timing/deadReckoningSeconds", value.deadReckoningSeconds, 1, 2592000);
+  value.removeSeconds = bounded("timing/removeSeconds", value.removeSeconds, 1, 1209600);
+  value.trailSegmentMinutes = bounded("timing/trailSegmentMinutes", value.trailSegmentMinutes, 0, 720);
+  value.trailSegmentDegrees = bounded("timing/trailSegmentDegrees", value.trailSegmentDegrees, 0, 45);
   value.beaconSeconds = beacons_->intervalSeconds();
   map_->setTiming(value);
   connect(beacons_, &BeaconControl::intervalChanged, this, [this](int seconds) {
@@ -108,7 +113,12 @@ void ConfigurationUi::timing()
   dialog->setWindowTitle(tr("Configure Timing"));
   dialog->setAttribute(Qt::WA_DeleteOnClose);
   dialog->setWindowModality(Qt::WindowModal);
-  auto *form = new QFormLayout(dialog);
+  auto *layout = new QVBoxLayout(dialog);
+  auto *scroll = new QScrollArea(dialog);
+  scroll->setWidgetResizable(true);
+  auto *contents = new QWidget(scroll);
+  auto *form = new QFormLayout(contents);
+  scroll->setWidget(contents); layout->addWidget(scroll);
   auto spin = [dialog, form](const QString &label, const char *name, int minimum, int maximum, int value) {
     auto *box = new QSpinBox(dialog);
     box->setObjectName(name); box->setRange(minimum, maximum); box->setValue(value);
@@ -116,10 +126,21 @@ void ConfigurationUi::timing()
   };
   const auto value = map_->timing();
   auto *clear = spin(tr("Station clear time"), "timingClear", 1, 604800, value.clearSeconds);
+  auto *remove = spin(tr("Station removal time"), "timingRemove", 1, 1209600, value.removeSeconds);
   auto *aircraft = spin(tr("Aircraft clear time"), "timingAircraft", 0, 604800, value.aircraftSeconds);
   aircraft->setSpecialValueText(tr("Disabled"));
   auto *dr = spin(tr("Dead-reckoning timeout"), "timingDeadReckoning", 1, 2592000, value.deadReckoningSeconds);
   auto *beacon = spin(tr("Position beacon interval"), "timingBeacon", 60, 86400, beacons_->intervalSeconds());
+  auto *segmentTime = new QSpinBox(dialog);
+  segmentTime->setObjectName("timingTrailSegmentMinutes");
+  segmentTime->setRange(0, 720); segmentTime->setSuffix(tr(" minutes"));
+  segmentTime->setValue(value.trailSegmentMinutes);
+  form->addRow(tr("Maximum time between trail points"), segmentTime);
+  auto *segmentDistance = new QSpinBox(dialog);
+  segmentDistance->setObjectName("timingTrailSegmentDegrees");
+  segmentDistance->setRange(0, 45); segmentDistance->setSuffix(tr(" degrees"));
+  segmentDistance->setValue(value.trailSegmentDegrees);
+  form->addRow(tr("Maximum trail latitude/longitude gap"), segmentDistance);
   auto *snapshotInterval = new QSpinBox(dialog);
   snapshotInterval->setObjectName("timingSnapshotInterval");
   snapshotInterval->setRange(1, 30); snapshotInterval->setSuffix(tr(" minutes"));
@@ -135,18 +156,21 @@ void ConfigurationUi::timing()
     const auto path = QFileDialog::getExistingDirectory(dialog, tr("PNG snapshot directory"), directory->text());
     if (!path.isEmpty()) directory->setText(path);
   });
-  auto *note = new QLabel(tr("Clear times affect map visibility, not stored history. Display Old Data bypasses station clearing. Aircraft use the legacy five-times-clear cutoff.\n\nChanging the beacon interval waits one full interval; periodic sending and TX must be enabled separately in Position Beacon and Interface Control.\n\nGhosting, station removal, GPS, object transmission, serial pacing, and trail timing are not implemented here yet.\n\nEnable PNG Snapshots in the File menu to refresh snapshot.png in the selected directory."), dialog);
+  auto *note = new QLabel(tr("Clear time hides stations and expires trail points. Display Old Data bypasses hiding, but not removal or trail expiry. Aircraft use the legacy five-times-clear cutoff.\n\nRemoval deletes received station state from memory; your station and owned objects/items remain. Cleanup runs every minute. Traffic history and messages are retained independently.\n\nTrail gap limits apply to new points. Zero permits only points with the same time or coordinate; it does not disable the limit.\n\nChanging the beacon interval waits one full interval; periodic sending and TX must be enabled separately in Position Beacon and Interface Control.\n\nGhosting, GPS, object transmission, and serial pacing are not implemented here yet. Enable PNG Snapshots in the File menu to refresh snapshot.png."), dialog);
   note->setWordWrap(true); form->addRow(note);
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
-  form->addRow(buttons);
+  layout->addWidget(buttons);
   connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
-  connect(buttons, &QDialogButtonBox::accepted, this, [this, dialog, clear, aircraft, dr, beacon, snapshotInterval, directory] {
+  connect(buttons, &QDialogButtonBox::accepted, this, [this, dialog, clear, remove, aircraft, dr, beacon, segmentTime, segmentDistance, snapshotInterval, directory] {
     if (directory->text().trimmed().isEmpty()) {
       QMessageBox::warning(dialog, tr("PNG snapshots"), tr("Choose a snapshot directory."));
       return;
     }
     QSettings settings;
     settings.setValue("timing/clearSeconds", clear->value());
+    settings.setValue("timing/removeSeconds", remove->value());
+    settings.setValue("timing/trailSegmentMinutes", segmentTime->value());
+    settings.setValue("timing/trailSegmentDegrees", segmentDistance->value());
     settings.setValue("timing/aircraftSeconds", aircraft->value());
     settings.setValue("timing/deadReckoningSeconds", dr->value());
     settings.setValue("beacon/interval", beacon->value());
@@ -155,6 +179,8 @@ void ConfigurationUi::timing()
     if (!save()) return;
     auto value = map_->timing();
     value.clearSeconds = clear->value(); value.aircraftSeconds = aircraft->value();
+    value.removeSeconds = remove->value();
+    value.trailSegmentMinutes = segmentTime->value(); value.trailSegmentDegrees = segmentDistance->value();
     value.deadReckoningSeconds = dr->value(); value.beaconSeconds = beacon->value();
     map_->setTiming(value);
     beacons_->setIntervalSeconds(beacon->value());
@@ -162,6 +188,6 @@ void ConfigurationUi::timing()
     window_->statusBar()->showMessage(tr("Timing saved and applied."), 5000);
     dialog->accept();
   });
-  dialog->resize(540, 360);
+  dialog->resize(600, 640);
   dialog->show();
 }

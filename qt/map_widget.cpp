@@ -71,9 +71,17 @@ void MapWidget::setStationModel(StationModel *stations)
   stations_ = stations;
   if (stations_)
   {
+    stations_->setTiming(timing_);
     connect(stations_, &StationModel::stationsChanged, this, qOverload<>(&MapWidget::update));
     connect(stations_, &QObject::destroyed, this, qOverload<>(&MapWidget::update));
   }
+  update();
+}
+
+void MapWidget::setTiming(const TimingSettings &value)
+{
+  timing_ = value;
+  if (stations_) stations_->setTiming(value);
   update();
 }
 

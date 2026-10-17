@@ -19,8 +19,83 @@ static int consistent(const XastirStationDb *db)
   }
   return previous == db->newest && names == times && names == db->count;
 }
+static int maintenance_test(void)
+{
+  XastirStationDb *db = calloc(1, sizeof(*db));
+  CHECK(db); xastir_station_db_init(db, 10000);
+  DataRow *local = xastir_station_upsert(db, "A_LOCAL", 1);
+  DataRow *owned = xastir_station_upsert(db, "B_OWNED", 1);
+  CHECK(local && owned);
+  local->flag |= ST_MYSTATION; owned->flag |= ST_MYOBJITEM | ST_ITEM;
+  CHECK(xastir_station_upsert(db, "C_OLD", 9499));
+  DataRow *boundary = xastir_station_upsert(db, "D_BOUNDARY", 9500);
+  CHECK(boundary);
+  CHECK(xastir_station_status(db, "E_STATUS", "Old positionless report", 100));
+  DataRow *track = xastir_station_upsert(db, "F_TRACK", 10000);
+  CHECK(track);
+  CHECK(xastir_store_trail_point(db, track, 100, 200, 9899, "", "", "", 0));
+  CHECK(xastir_store_trail_point(db, track, 110, 210, 9900, "", "", "", 0));
+  CHECK(xastir_store_trail_point(db, track, 120, 220, 10000, "", "", "", 0));
+  XastirStationMaintenance state = {0};
+  CHECK(xastir_station_maintain(db, &state, 10000, 500, 100, 2));
+  CHECK(state.removed == 0 && db->count == 6);
+  CHECK(xastir_station_maintain(db, &state, 10000, 500, 100, 2));
+  CHECK(state.removed == 1 && db->count == 5);
+  CHECK(!xastir_station_maintain(db, &state, 10000, 500, 100, 2));
+  CHECK(state.removed == 1 && state.trails_changed == 1 && !state.after_name[0]);
+  CHECK(db->count == 4 && consistent(db));
+  CHECK(track->oldest_trackpoint->sec == 9900 && !track->oldest_trackpoint->prev);
+  CHECK(track->newest_trackpoint->sec == 10000 && db->tracked == 1);
+  CHECK(local->flag & ST_MYSTATION); CHECK(owned->flag & ST_MYOBJITEM);
+  CHECK(boundary->sec_heard == 9500);
+  /* The cursor must survive deletion of both the last visited and next row. */
+  CHECK(xastir_station_maintain(db, &state, 10101, 500, 100, 1));
+  xastir_station_del_ptr(db, local); xastir_station_del_ptr(db, owned);
+  CHECK(xastir_station_upsert(db, "B_NEW", 10101));
+  CHECK(xastir_station_maintain(db, &state, 10101, 500, 100, 1));
+  CHECK(strcmp(state.after_name, "B_NEW") == 0);
+  while (xastir_station_maintain(db, &state, 10101, 500, 100, 1)) CHECK(consistent(db));
+  CHECK(db->count == 2 && consistent(db));
+  CHECK(!track->oldest_trackpoint && !track->newest_trackpoint && db->tracked == 0);
+  CHECK(!xastir_station_maintain(db, &state, 10101, 500, 100, 0));
+  CHECK(db->count == 2);
+  xastir_delete_all_stations(db);
+  CHECK(!xastir_station_maintain(db, &state, 10101, 500, 100, 2));
+  free(db);
+  return 0;
+}
+
+static int trail_timing_test(void)
+{
+  XastirStationDb *db = calloc(1, sizeof(*db));
+  CHECK(db); xastir_station_db_init(db, 10000);
+  db->segment_minutes = 2; db->segment_distance = 1;
+  DataRow *row = xastir_station_upsert(db, "TRAIL", 10000);
+  CHECK(row);
+  CHECK(xastir_store_trail_point(db, row, 100, 200, 100, "", "", "", 0));
+  CHECK(row->newest_trackpoint->flag & TR_NEWTRK);
+  CHECK(xastir_store_trail_point(db, row, 100, 200, 220, "", "", "", 0));
+  CHECK(!(row->newest_trackpoint->flag & TR_NEWTRK));
+  CHECK(xastir_store_trail_point(db, row, 100, 200, 341, "", "", "", 0));
+  CHECK(row->newest_trackpoint->flag & TR_NEWTRK);
+  CHECK(xastir_store_trail_point(db, row, 360100, 200, 342, "", "", "", 0));
+  CHECK(!(row->newest_trackpoint->flag & TR_NEWTRK));
+  CHECK(xastir_store_trail_point(db, row, 720101, 200, 343, "", "", "", 0));
+  CHECK(row->newest_trackpoint->flag & TR_NEWTRK);
+  db->segment_minutes = db->segment_distance = 0;
+  CHECK(xastir_store_trail_point(db, row, 720101, 200, 343, "", "", "", 0));
+  CHECK(!(row->newest_trackpoint->flag & TR_NEWTRK));
+  CHECK(xastir_store_trail_point(db, row, 720101, 200, 344, "", "", "", 0));
+  CHECK(row->newest_trackpoint->flag & TR_NEWTRK);
+  CHECK(xastir_store_trail_point(db, row, 720101, 201, 344, "", "", "", 0));
+  CHECK(row->newest_trackpoint->flag & TR_NEWTRK);
+  xastir_delete_all_stations(db); free(db);
+  return 0;
+}
 int main(void)
 {
+  CHECK(maintenance_test() == 0);
+  CHECK(trail_timing_test() == 0);
   XastirStationDb *a = calloc(1, sizeof(*a)), *b = calloc(1, sizeof(*b));
   CHECK(a && b); xastir_station_db_init(a, 100); xastir_station_db_init(b, 100);
   for (int i = 0; i < 1000; ++i) {

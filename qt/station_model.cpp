@@ -65,7 +65,7 @@ void reception(DataRow *row, char dataVia, bool direct, const QString &path = {}
     }
   }
 }
-bool store(XastirStationDb *database, const Station &station)
+bool store(XastirStationDb *database, const Station &station, const QString &ownCallsign)
 {
   const auto name = station.callsign.toUtf8(), source = station.sourceStation.toUtf8();
   const auto speed = station.speed.toLatin1(), altitude = station.altitude.toLatin1(), comment = station.comment.toLatin1();
@@ -78,6 +78,9 @@ bool store(XastirStationDb *database, const Station &station)
   DataRow *row = nullptr;
   xastir_search_station_name(database, &row, const_cast<char *>(name.constData()), 1);
   if (!row || ((row->flag & ST_MYSTATION) && !station.local)) return true;
+  if (station.kind != StationKind::Station && station.sourceStation == ownCallsign && !ownCallsign.isEmpty())
+    row->flag |= ST_MYOBJITEM;
+  else row->flag &= ~ST_MYOBJITEM;
   reception(row, station.dataVia, station.direct, station.path);
   if (station.weather && xastir_get_weather_record(row)) *row->weather_data = *station.weather;
   auto copy = [](char *out, size_t size, const QString &value) {
@@ -90,11 +93,44 @@ bool store(XastirStationDb *database, const Station &station)
   return true;
 }
 }
-StationModel::StationModel(QObject *parent) : QObject(parent), database_(std::make_unique<XastirStationDb>())
+StationModel::StationModel(QObject *parent) : QObject(parent), database_(std::make_unique<XastirStationDb>()),
+  maintenanceTimer_(this), maintenanceBatchTimer_(this)
 {
   xastir_station_db_init(database_.get(), QDateTime::currentSecsSinceEpoch());
+  maintenanceTimer_.setObjectName("stationMaintenanceTimer");
+  maintenanceTimer_.setInterval(60000);
+  connect(&maintenanceTimer_, &QTimer::timeout, this, &StationModel::startMaintenance);
+  maintenanceTimer_.start();
+  maintenanceBatchTimer_.setSingleShot(true);
+  connect(&maintenanceBatchTimer_, &QTimer::timeout, this, &StationModel::maintainBatch);
 }
 StationModel::~StationModel() { xastir_delete_all_stations(database_.get()); }
+
+void StationModel::setTiming(const TimingSettings &timing)
+{
+  const bool retentionChanged = removeSeconds_ != timing.removeSeconds || database_->trail_seconds != timing.clearSeconds;
+  removeSeconds_ = std::clamp(timing.removeSeconds, 1, 1209600);
+  database_->trail_seconds = std::clamp(timing.clearSeconds, 1, 604800);
+  database_->segment_minutes = std::clamp(timing.trailSegmentMinutes, 0, 720);
+  database_->segment_distance = std::clamp(timing.trailSegmentDegrees, 0, 45);
+  if (retentionChanged) startMaintenance();
+}
+
+void StationModel::startMaintenance()
+{
+  maintenance_ = {};
+  maintenanceNow_ = QDateTime::currentSecsSinceEpoch();
+  maintenanceBatchTimer_.start(0);
+}
+
+void StationModel::maintainBatch()
+{
+  const bool more = xastir_station_maintain(database_.get(), &maintenance_, maintenanceNow_,
+                                          removeSeconds_, database_->trail_seconds, 64);
+  if (maintenance_.removed) refreshProjection();
+  if (maintenance_.removed || maintenance_.trails_changed) emit stationsChanged();
+  if (more) maintenanceBatchTimer_.start(1);
+}
 namespace {
 Station project(const DataRow *row)
 {
@@ -136,7 +172,7 @@ void StationModel::refreshProjection()
 bool StationModel::upsert(Station station, QString *error)
 {
   if (!validate(station, error)) return false;
-  if (!store(database_.get(), station)) return fail(error, tr("Cannot store station in the APRS database."));
+  if (!store(database_.get(), station, ownCallsign_)) return fail(error, tr("Cannot store station in the APRS database."));
   // A configured local position has priority over an RF echo of that callsign.
   const auto name = station.callsign.toUtf8(); DataRow *row = nullptr;
   xastir_search_station_name(database_.get(), &row, const_cast<char *>(name.constData()), 1);
@@ -145,8 +181,6 @@ bool StationModel::upsert(Station station, QString *error)
     emit stationsChanged();
     return true;
   }
-  if (row && station.kind != StationKind::Station && station.sourceStation == ownCallsign_ && !ownCallsign_.isEmpty()) row->flag |= ST_MYOBJITEM;
-  else if (row) row->flag &= ~ST_MYOBJITEM;
   if (row && tactical_.contains(station.callsign)) {
     std::free(row->tactical_call_sign); row->tactical_call_sign = nullptr;
     const auto name = tactical_.value(station.callsign).toUtf8();
@@ -290,8 +324,11 @@ bool StationModel::loadFile(const QString &path, QString *error)
   }
   auto replacement = std::make_unique<XastirStationDb>();
   xastir_station_db_init(replacement.get(), QDateTime::currentSecsSinceEpoch());
+  replacement->segment_minutes = database_->segment_minutes;
+  replacement->segment_distance = database_->segment_distance;
+  replacement->trail_seconds = database_->trail_seconds;
   for (const auto &station : next) {
-    if (!store(replacement.get(), station)) {
+    if (!store(replacement.get(), station, ownCallsign_)) {
       xastir_delete_all_stations(replacement.get());
       return fail(error, tr("Cannot store station snapshot in the APRS database."));
     }

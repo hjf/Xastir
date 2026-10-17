@@ -53,7 +53,7 @@ public:
   void setTextStyle(int style) { textStyle_ = style; update(); }
   void setIconOutline(int style) { iconOutline_ = style; update(); }
   bool stationVisible(const QString &name) const;
-  void setTiming(const TimingSettings &value) { timing_ = value; update(); }
+  void setTiming(const TimingSettings &value);
   const TimingSettings &timing() const { return timing_; }
 
 signals:

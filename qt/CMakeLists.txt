@@ -9,6 +9,7 @@ add_library(xastir_qt_ui STATIC
   main_window.cpp main_window.h
   file_menu.cpp file_menu.h
   configuration_ui.cpp configuration_ui.h
+  timing_settings.h
   snapshot_control.cpp snapshot_control.h
   legacy_menus.cpp legacy_menus.h
   message_service.cpp message_service.h

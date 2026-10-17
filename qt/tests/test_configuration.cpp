@@ -4,6 +4,7 @@
 #include "beacon_control.h"
 #include "message_service.h"
 #include "packet_monitor.h"
+#include "station_navigator.h"
 #include <QAction>
 #include <QCheckBox>
 #include <QDateTime>
@@ -74,9 +75,15 @@ private slots:
     window.findChild<QAction *>("PULDNCF003")->trigger();
     auto *timing = window.findChild<QDialog *>("configureTiming");
     timing->findChild<QSpinBox *>("timingBeacon")->setValue(600);
+    timing->findChild<QSpinBox *>("timingRemove")->setValue(1);
+    timing->findChild<QSpinBox *>("timingTrailSegmentMinutes")->setValue(5);
+    timing->findChild<QSpinBox *>("timingTrailSegmentDegrees")->setValue(2);
     timing->reject();
     QCOMPARE(window.findChild<BeaconControl *>()->intervalSeconds(), 300);
     QVERIFY(!QSettings().contains("beacon/interval"));
+    QCOMPARE(window.stationModel()->database()->segment_minutes, 30);
+    QCOMPARE(window.stationModel()->database()->segment_distance, 1);
+    QVERIFY(!QSettings().contains("timing/removeSeconds"));
   }
   void timingChangesVisibilityAndRestores() {
     ApplicationOptions options;
@@ -140,10 +147,111 @@ private slots:
     QVERIFY(predicted != map->grab().toImage());
     QVERIFY(map->stationVisible("REMOTE"));
   }
+  void removalAndTrailTimingApplyAndRestore() {
+    ApplicationOptions options;
+    options.config.callsign = "LOCAL";
+    Station local; local.callsign = "LOCAL";
+    options.config.localStation = local;
+    {
+      MainWindow window(options);
+      auto *stations = window.stationModel();
+      const auto now = QDateTime::currentSecsSinceEpoch();
+      stations->applyPacket("REMOTE>APRS:!4903.50N/07201.75W>old", 'T', now - 120);
+      stations->applyPacket("OLDSTATUS>APRS:>No position", 'I', now - 120);
+      stations->applyPacket("LOCAL>APRS:;OWNED    *101200z4903.50N/07201.75W>mine", 'T', now - 120);
+      stations->applyPacket("MOVING>APRS:!4903.50N/07201.75W>090/010", 'T', now - 120);
+      stations->applyPacket("MOVING>APRS:!4903.51N/07201.75W>090/010", 'T', now);
+      QVERIFY(stations->record("MOVING")->oldest_trackpoint);
+      auto *navigator = window.findChild<StationNavigator *>();
+      QVERIFY(navigator->locate("REMOTE", true));
+      auto *map = window.findChild<MapWidget *>();
+      auto selections = map->selections(); selections.old_data = 1; map->setSelections(selections);
+      window.findChild<QAction *>("PULDNCF003")->trigger();
+      auto *dialog = window.findChild<QDialog *>("configureTiming");
+      dialog->findChild<QSpinBox *>("timingClear")->setValue(60);
+      dialog->findChild<QSpinBox *>("timingRemove")->setValue(90);
+      dialog->findChild<QSpinBox *>("timingTrailSegmentMinutes")->setValue(1);
+      dialog->findChild<QSpinBox *>("timingTrailSegmentDegrees")->setValue(2);
+      accept(dialog);
+      QTRY_VERIFY(!stations->record("REMOTE"));
+      QVERIFY(!stations->record("OLDSTATUS"));
+      QVERIFY(stations->record("LOCAL"));
+      QVERIFY(stations->record("OWNED"));
+      QVERIFY(navigator->followedName().isEmpty());
+      QCOMPARE(qint64(stations->record("MOVING")->oldest_trackpoint->sec), now);
+      QCOMPARE(stations->database()->segment_minutes, 1);
+      QCOMPARE(stations->database()->segment_distance, 2);
+      // Future receptions use the configured gap limit in the C trail builder.
+      stations->applyPacket("MOVING>APRS:!4903.52N/07201.75W>090/010", 'T', now + 61);
+      QVERIFY(stations->record("MOVING")->newest_trackpoint->flag & TR_NEWTRK);
+      // Scheduled cleanup also runs while the map window is hidden.
+      auto *timer = stations->findChild<QTimer *>("stationMaintenanceTimer");
+      QVERIFY(timer && timer->isActive());
+      QCOMPARE(timer->interval(), 60000);
+      stations->applyPacket("LATE>APRS:>Old replay", 'F', now - 120);
+      QVERIFY(QMetaObject::invokeMethod(timer, "timeout"));
+      QTRY_VERIFY(!stations->record("LATE"));
+    }
+    MainWindow restored(options);
+    const auto timing = restored.findChild<MapWidget *>()->timing();
+    QCOMPARE(timing.removeSeconds, 90);
+    QCOMPARE(timing.trailSegmentMinutes, 1);
+    QCOMPARE(timing.trailSegmentDegrees, 2);
+    QCOMPARE(restored.stationModel()->database()->trail_seconds, time_t(60));
+  }
+  void trailLifetimeFollowsClearTime() {
+    StationModel stations;
+    TimingSettings timing;
+    timing.clearSeconds = 7200;
+    timing.removeSeconds = 86400;
+    stations.setTiming(timing);
+    const auto now = QDateTime::currentSecsSinceEpoch();
+    stations.applyPacket("MOBILE>APRS:!4903.50N/07201.75W>090/010", 'T', now - 4000);
+    stations.applyPacket("MOBILE>APRS:!4903.51N/07201.75W>090/010", 'T', now);
+    QCOMPARE(qint64(stations.record("MOBILE")->oldest_trackpoint->sec), now - 4000);
+    timing.clearSeconds = 60;
+    stations.setTiming(timing);
+    QTRY_COMPARE(qint64(stations.record("MOBILE")->oldest_trackpoint->sec), now);
+    QVERIFY(stations.record("MOBILE")->oldest_trackpoint == stations.record("MOBILE")->newest_trackpoint);
+  }
+  void maintenanceContinuesAcrossBatchesAndReception() {
+    StationModel stations;
+    const auto now = QDateTime::currentSecsSinceEpoch();
+    for (int i = 0; i < 130; ++i)
+      stations.applyPacket(QString("S%1>APRS:>Old status").arg(i, 4, 10, QChar('0')).toLatin1(), 'I', now - 86400);
+    bool receivedDuringCleanup = false;
+    connect(&stations, &StationModel::stationsChanged, &stations, [&] {
+      if (receivedDuringCleanup) return;
+      receivedDuringCleanup = true;
+      stations.applyPacket("A_NEW>APRS:>Just received", 'T', now);
+      stations.remove("S0064");
+    });
+    auto *timer = stations.findChild<QTimer *>("stationMaintenanceTimer");
+    QVERIFY(timer && QMetaObject::invokeMethod(timer, "timeout"));
+    QTRY_COMPARE(stations.database()->count, 1);
+    QVERIFY(receivedDuringCleanup);
+    QVERIFY(stations.record("A_NEW"));
+  }
+  void snapshotReplacementPreservesTrailSettingsAndOwnership() {
+    StationModel stations;
+    stations.setOwnCallsign("LOCAL");
+    TimingSettings timing;
+    timing.clearSeconds = 7200; timing.trailSegmentMinutes = 5; timing.trailSegmentDegrees = 3;
+    stations.setTiming(timing);
+    QFile snapshot(settings_.filePath("stations.json"));
+    QVERIFY(snapshot.open(QIODevice::WriteOnly));
+    snapshot.write(R"([{"callsign":"Owned","latitude":49,"longitude":-72,"symbol":"/>","kind":"object","source":"LOCAL"}])");
+    snapshot.close();
+    QVERIFY(stations.loadFile(snapshot.fileName()));
+    QCOMPARE(stations.database()->trail_seconds, time_t(7200));
+    QCOMPARE(stations.database()->segment_minutes, 5);
+    QCOMPARE(stations.database()->segment_distance, 3);
+    QVERIFY(stations.record("Owned")->flag & ST_MYOBJITEM);
+  }
   void legacyTimingAndInvalidSettings() {
     QFile file(settings_.filePath("legacy.cnf"));
     QVERIFY(file.open(QIODevice::WriteOnly));
-    file.write("STATION_CALLSIGN:LOCAL\nDEFAULT_STATION_CLEAR:43200\nDEFAULT_AIRCRAFT_CLEAR:120\nDEAD_RECKONING_TIMEOUT:900\nPOSIT_RATE:1800\nTRAFFIC_UTF8:0\n");
+    file.write("STATION_CALLSIGN:LOCAL\nDEFAULT_STATION_CLEAR:43200\nDEFAULT_AIRCRAFT_CLEAR:120\nDEAD_RECKONING_TIMEOUT:900\nPOSIT_RATE:1800\nTRAFFIC_UTF8:0\nDEFAULT_STATION_REMOVE:86400\nTRAIL_SEGMENT_TIME:45\nTRAIL_SEGMENT_DISTANCE:3\n");
     file.close();
     ApplicationOptions options;
     QString error;
@@ -151,11 +259,17 @@ private slots:
     QSettings().setValue("timing/clearSeconds", "invalid");
     QSettings().setValue("timing/aircraftSeconds", -1);
     QSettings().setValue("beacon/interval", "invalid");
+    QSettings().setValue("timing/removeSeconds", 1209601);
+    QSettings().setValue("timing/trailSegmentMinutes", "invalid");
+    QSettings().setValue("timing/trailSegmentDegrees", -1);
     MainWindow window(options);
     auto *map = window.findChild<MapWidget *>();
     QCOMPARE(map->timing().clearSeconds, 43200);
     QCOMPARE(map->timing().aircraftSeconds, 120);
     QCOMPARE(map->timing().deadReckoningSeconds, 900);
+    QCOMPARE(map->timing().removeSeconds, 86400);
+    QCOMPARE(map->timing().trailSegmentMinutes, 45);
+    QCOMPARE(map->timing().trailSegmentDegrees, 3);
     QCOMPARE(window.findChild<BeaconControl *>()->intervalSeconds(), 1800);
     QVERIFY(!window.findChild<PacketMonitor *>()->trafficUtf8());
   }

@@ -25,6 +25,9 @@ bool readXastirConfig(const QString &path, XastirConfig &config, QString *error)
   result.timing.aircraftSeconds = bounded("DEFAULT_AIRCRAFT_CLEAR", 0, 0, 604800);
   result.timing.deadReckoningSeconds = bounded("DEAD_RECKONING_TIMEOUT", 600, 1, 2592000);
   result.timing.beaconSeconds = bounded("POSIT_RATE", 300, 60, 86400);
+  result.timing.removeSeconds = bounded("DEFAULT_STATION_REMOVE", result.timing.clearSeconds * 2, 1, 1209600);
+  result.timing.trailSegmentMinutes = bounded("TRAIL_SEGMENT_TIME", 30, 0, 720);
+  result.timing.trailSegmentDegrees = bounded("TRAIL_SEGMENT_DISTANCE", 1, 0, 45);
   result.snapshotIntervalMinutes = bounded("SNAPSHOT_INTERVAL", 5, 1, 30);
   result.snapshotsEnabled = bounded("SNAPSHOTS_ENABLED", 0, 0, 1) != 0;
   result.trafficUtf8 = bounded("TRAFFIC_UTF8", 1, 0, 1) != 0;
