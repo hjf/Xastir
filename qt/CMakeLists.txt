@@ -18,6 +18,7 @@ add_library(xastir_qt_ui STATIC
   station_navigator.cpp station_navigator.h
   station_menu.cpp station_menu.h
   station_details.cpp station_details.h
+  station_views.cpp station_views.h
   interface_control.cpp interface_control.h
   aprsis_client.cpp aprsis_client.h
   beacon_control.cpp beacon_control.h
@@ -67,6 +68,14 @@ install(TARGETS xastir-qt RUNTIME DESTINATION bin BUNDLE DESTINATION .)
 
 if(BUILD_TESTING)
   find_package(Qt6 6.4 REQUIRED COMPONENTS Test)
+  qt_add_executable(test_station_views tests/test_station_views.cpp)
+  target_link_libraries(test_station_views PRIVATE xastir_qt_ui Qt6::Test)
+  set_target_properties(test_station_views PROPERTIES WIN32_EXECUTABLE FALSE)
+  if(TARGET Qt6::QOffscreenIntegrationPlugin)
+    qt_import_plugins(test_station_views INCLUDE Qt6::QOffscreenIntegrationPlugin)
+  endif()
+  add_test(NAME station_views COMMAND test_station_views)
+  set_tests_properties(station_views PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
   qt_add_executable(test_snapshots tests/test_snapshots.cpp)
   target_link_libraries(test_snapshots PRIVATE xastir_qt_ui Qt6::Test)
   set_target_properties(test_snapshots PROPERTIES WIN32_EXECUTABLE FALSE)

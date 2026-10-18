@@ -36,6 +36,41 @@ static int view_aprs_char(char c) { return view_digit(c) || c == '-' || c == ' '
 static void view_substr(char *out, const char *in, size_t count) {
   size_t n = strlen(in); if (n > count) n = count; memcpy(out,in,n); out[n] = 0;
 }
+/* Extracted from get_list_member/stations_types in list_gui.c. A single
+ * predicate also makes object membership consistent in both directions. */
+int xastir_station_list_contains(const DataRow *row, int type)
+{
+  if (!row) return 0;
+  const int object = row->flag & (ST_OBJECT | ST_ITEM);
+  if (type == XASTIR_LIST_OBJECTS) return object != 0;
+  if (type == XASTIR_LIST_OWN_OBJECTS) return object && (row->flag & ST_MYOBJITEM);
+  if (!(row->flag & ST_ACTIVE)) return 0;
+  switch (type) {
+    case XASTIR_LIST_ALL:
+    case XASTIR_LIST_LAST: return 1;
+    case XASTIR_LIST_MOBILE: return row->newest_trackpoint != NULL;
+    case XASTIR_LIST_WEATHER: return row->weather_data != NULL;
+    case XASTIR_LIST_LOCAL: return (row->flag & ST_VIATNC) != 0;
+    default: return 0;
+  }
+}
+
+static const DataRow *station_list_step(const DataRow *row, int type, int forward)
+{
+  if (type == XASTIR_LIST_LAST) return forward ? row->t_older : row->t_newer;
+  return forward ? row->n_next : row->n_prev;
+}
+
+const DataRow *xastir_station_list_member(const XastirStationDb *db, const DataRow *row,
+                                         int type, int skip, int forward)
+{
+  if (!db || type < 0 || type >= XASTIR_LIST_COUNT) return NULL;
+  if (!row) row = type == XASTIR_LIST_LAST ? db->newest : db->first;
+  if (row && skip) row = station_list_step(row, type, forward);
+  while (row && !xastir_station_list_contains(row, type)) row = station_list_step(row, type, forward);
+  return row;
+}
+
 int xastir_station_visible(const DataRow *p_station, const Selections *selection, time_t secs_now, int sec_clear, int st_direct_timeout, int aircraft_sec_clear)
 {
 

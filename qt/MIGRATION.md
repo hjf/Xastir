@@ -9,6 +9,7 @@ the README also contains historical milestone descriptions.
 | --- | --- | --- |
 | Position reports | Original uncompressed/compressed, DAO and Mic-E decoding | TNC2 dispatch, AGWPE and APRS-IS reception |
 | Stations | Original database, comment/status history, weather, expiry and bounded trails | Station projection, navigation, details, map interaction and scheduled cleanup |
+| View menu | Original station-list membership and traversal, ALOHA calculation | Live station tables, own weather, details/navigation, ALOHA statistics and session uptime |
 | Messages | History storage, IDs, delivery ordering, retry/ACK policy, groups and auto reply | Conversations, queue controls and transport adapters |
 | Position beacons | Fixed-position packet formatting | Explicit TX controls and periodic scheduling |
 | Map overlays | Station selection, distance/bearing, PHG/DF, weather and dead reckoning calculations | Raster/vector painting, labels, display controls and offline maps |
@@ -98,6 +99,54 @@ expiry, trail linkage/counters, segment gap limits, and deletion between batches
 Offscreen Qt tests cover apply/cancel/restart, hidden-window cleanup, reception
 between batches, station following, snapshot replacement, and archive retention
 without transmission.
+
+## View menu: station lists and statistics
+
+View now provides All Stations, Mobile Stations, Local Stations, Last Stations,
+Objects & Items, Own Objects & Items, Weather Stations, Own Weather Data,
+Uptime, and ALOHA Statistics.
+
+The original `list_gui.c` membership and traversal rules are shared through
+`xastir_station_list_contains` and `xastir_station_list_member`. Mobile lists
+require a retained trail; the moving flag alone is insufficient. Local lists
+use the retained TNC reception flag, so a later Internet update does not remove
+that record from the local list. Weather lists include positionless reports.
+Lists operate independently of map display filters and clear-time hiding.
+The shared object predicate also fixes the original backward-traversal mismatch
+that could include regular TNC stations while omitting objects.
+
+Qt tables show reception timestamps, packet counts, ownership, positions,
+latest source/path and comment/status. Mobile and weather views add measurements
+with explicit units. Own Weather Data selects received weather for the configured
+callsign. Columns support sorting; Last Stations initially sorts newest first.
+Text filtering searches across columns. Selected names survive refreshes.
+Details works for positionless stations; Center on map and Follow require an
+active positioned record. This makes status-only and weather-only details
+accessible through the View menu.
+
+Open lists refresh at most twice per second. Database records are copied in
+batches of 128 with a name cursor, without retaining C row pointers between
+event-loop turns. Closed lists do not trigger scans. Reopening refreshes the
+current state. As elsewhere in Qt, kill reports remove objects/items from memory;
+their retained packets remain accessible through traffic history rather than
+inactive rows in these lists. No transmission or archive writes result from
+opening, filtering, or navigating a list.
+
+ALOHA Statistics calls the existing shared C calculation around the configured
+station position. It shows category counts and the estimated radius, or an
+indeterminate result when the available data cannot establish a radius. It uses
+retained TNC reception records, excluding Internet-only reports. The dialog is
+a snapshot with an explicit Refresh button. Uptime shows this application
+session's start, elapsed duration from a monotonic clock, and station-record
+count; it updates once per second.
+
+Linux fixtures verify membership, inactive object handling and bidirectional
+traversal. Offscreen tests exercise all ten actions, actual APRS position/status/
+weather/object/item packets, filtering, selection retention, details/navigation,
+updates and kills, replacement during a batch scan, teardown with a selected row,
+weather units, uptime, and
+ALOHA statistics with Internet-only records excluded. Bulletins, CAD polygons,
+weather alerts and GPS Status still require their unfinished backends.
 
 ## Remaining migration work
 

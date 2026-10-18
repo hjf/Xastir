@@ -86,6 +86,18 @@ typedef struct _what_to_display
   int last_heard;
 } What_to_display;
 
+/* Original View menu categories from list_gui.c. Mobile means a retained trail,
+ * local means heard through a TNC. Object lists include inactive records. */
+typedef enum {
+  XASTIR_LIST_ALL, XASTIR_LIST_MOBILE, XASTIR_LIST_WEATHER, XASTIR_LIST_LOCAL,
+  XASTIR_LIST_LAST, XASTIR_LIST_OBJECTS, XASTIR_LIST_OWN_OBJECTS, XASTIR_LIST_COUNT
+} XastirStationList;
+int xastir_station_list_contains(const DataRow *row, int type);
+/* Name order, or newest first for LAST. skip advances before matching; forward
+ * selects the normal direction. Returned rows remain owned by db. */
+const DataRow *xastir_station_list_member(const XastirStationDb *db, const DataRow *row,
+                                         int type, int skip, int forward);
+
 int xastir_station_visible(const DataRow *row, const Selections *selection, time_t now,
                           int clear_seconds, int direct_seconds, int aircraft_seconds);
 void xastir_compute_DR_position(long lon, long lat, double nautical_miles, double course, long *out_lon, long *out_lat);

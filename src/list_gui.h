@@ -25,15 +25,15 @@
 #ifndef __XASTIR_LIST_GUI_H
 #define __XASTIR_LIST_GUI_H
 
-// different list types:
-#define LST_ALL 0
-#define LST_MOB 1
-#define LST_WX  2
-#define LST_TNC 3
-#define LST_TIM 4
-#define LST_OBJ 5
-#define LST_MYOBJ 6
-#define LST_NUM 7
+#include "station_view.h"
+#define LST_ALL XASTIR_LIST_ALL
+#define LST_MOB XASTIR_LIST_MOBILE
+#define LST_WX XASTIR_LIST_WEATHER
+#define LST_TNC XASTIR_LIST_LOCAL
+#define LST_TIM XASTIR_LIST_LAST
+#define LST_OBJ XASTIR_LIST_OBJECTS
+#define LST_MYOBJ XASTIR_LIST_OWN_OBJECTS
+#define LST_NUM XASTIR_LIST_COUNT
 
 extern int list_size_h[];
 extern int list_size_w[];

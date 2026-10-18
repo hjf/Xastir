@@ -4,6 +4,7 @@
 #include "message_ui.h"
 #include "station_model.h"
 #include "station_navigator.h"
+#include "station_views.h"
 #include <QDateTime>
 #include <QDialog>
 #include <QHBoxLayout>
@@ -18,6 +19,8 @@ StationDetails::StationDetails(QMainWindow *w, StationModel *s, MapWidget *m, St
 {
   connect(m, &MapWidget::stationClicked, this, &StationDetails::open);
   connect(s, &StationModel::stationsChanged, this, &StationDetails::refresh);
+  auto *views = new StationViews(w, s, n, own);
+  connect(views, &StationViews::detailsRequested, this, &StationDetails::open);
 }
 void StationDetails::open(const QString &name)
 {

@@ -5,8 +5,64 @@
 #include <stdlib.h>
 #include <string.h>
 #define CHECK(c) do { if(!(c)){fprintf(stderr,"line %d: %s\n",__LINE__,#c);return 1;} } while(0)
+static int list_tests(void)
+{
+  DataRow row = {0}; WeatherRow weather = {0}; TrackRow point = {0};
+  CHECK(!xastir_station_list_contains(NULL, XASTIR_LIST_ALL));
+  CHECK(!xastir_station_list_contains(&row, XASTIR_LIST_ALL));
+  row.flag = ST_ACTIVE | ST_MOVING;
+  CHECK(xastir_station_list_contains(&row, XASTIR_LIST_ALL));
+  CHECK(xastir_station_list_contains(&row, XASTIR_LIST_LAST));
+  CHECK(!xastir_station_list_contains(&row, XASTIR_LIST_MOBILE));
+  row.newest_trackpoint = &point;
+  CHECK(xastir_station_list_contains(&row, XASTIR_LIST_MOBILE));
+  CHECK(!xastir_station_list_contains(&row, XASTIR_LIST_WEATHER));
+  row.weather_data = &weather;
+  CHECK(xastir_station_list_contains(&row, XASTIR_LIST_WEATHER));
+  CHECK(!xastir_station_list_contains(&row, XASTIR_LIST_LOCAL));
+  row.flag |= ST_VIATNC;
+  CHECK(xastir_station_list_contains(&row, XASTIR_LIST_LOCAL));
+  row.data_via = 'I'; /* An Internet update does not erase prior TNC reception. */
+  CHECK(xastir_station_list_contains(&row, XASTIR_LIST_LOCAL));
+  row.flag |= ST_MYOBJITEM;
+  CHECK(!xastir_station_list_contains(&row, XASTIR_LIST_OWN_OBJECTS));
+  row.flag = ST_ITEM | ST_MYOBJITEM;
+  CHECK(xastir_station_list_contains(&row, XASTIR_LIST_OBJECTS));
+  CHECK(xastir_station_list_contains(&row, XASTIR_LIST_OWN_OBJECTS));
+  CHECK(!xastir_station_list_contains(&row, XASTIR_LIST_ALL));
+  CHECK(!xastir_station_list_contains(&row, -1));
+  CHECK(!xastir_station_list_contains(&row, XASTIR_LIST_COUNT));
+  row.flag = ST_OBJECT;
+  CHECK(xastir_station_list_contains(&row, XASTIR_LIST_OBJECTS));
+  CHECK(!xastir_station_list_contains(&row, XASTIR_LIST_OWN_OBJECTS));
+
+  XastirStationDb *db = calloc(1, sizeof(*db)); CHECK(db); xastir_station_db_init(db, 1000);
+  DataRow *a = xastir_station_upsert(db, "A", 200);
+  DataRow *b = xastir_station_upsert(db, "B", 100);
+  DataRow *c = xastir_station_upsert(db, "C", 200);
+  DataRow *d = xastir_station_upsert(db, "D", 300);
+  CHECK(a && b && c && d);
+  a->flag = ST_ACTIVE; b->flag = ST_OBJECT;
+  c->flag = ST_ACTIVE | ST_VIATNC; d->flag = ST_ITEM | ST_MYOBJITEM;
+  CHECK(xastir_station_list_member(db, NULL, XASTIR_LIST_ALL, 0, 1) == a);
+  CHECK(xastir_station_list_member(db, a, XASTIR_LIST_ALL, 1, 1) == c);
+  CHECK(xastir_station_list_member(db, c, XASTIR_LIST_ALL, 1, 0) == a);
+  CHECK(!xastir_station_list_member(db, c, XASTIR_LIST_ALL, 1, 1));
+  CHECK(xastir_station_list_member(db, NULL, XASTIR_LIST_LAST, 0, 1) == c);
+  CHECK(xastir_station_list_member(db, c, XASTIR_LIST_LAST, 1, 1) == a);
+  CHECK(xastir_station_list_member(db, a, XASTIR_LIST_LAST, 1, 0) == c);
+  CHECK(xastir_station_list_member(db, NULL, XASTIR_LIST_OBJECTS, 0, 1) == b);
+  CHECK(xastir_station_list_member(db, b, XASTIR_LIST_OBJECTS, 1, 1) == d);
+  /* Reverse object traversal must not accidentally include regular TNC rows. */
+  CHECK(xastir_station_list_member(db, d, XASTIR_LIST_OBJECTS, 1, 0) == b);
+  CHECK(xastir_station_list_member(db, NULL, XASTIR_LIST_OWN_OBJECTS, 0, 1) == d);
+  CHECK(!xastir_station_list_member(db, NULL, XASTIR_LIST_COUNT, 0, 1));
+  xastir_delete_all_stations(db); free(db);
+  return 0;
+}
 int main(void)
 {
+  CHECK(list_tests() == 0);
   DataRow row={0};
   Selections s={0,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1};
   row.flag=ST_ACTIVE|ST_VIATNC|ST_DIRECT;row.sec_heard=row.direct_heard=1000;
