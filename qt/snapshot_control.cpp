@@ -72,6 +72,7 @@ void SnapshotControl::configure(const QString &directory, int intervalMinutes)
   settings.setValue("snapshots/directory", directory_);
   settings.setValue("snapshots/intervalMinutes", intervalMinutes_);
   schedule();
+  emit configurationChanged();
 }
 
 void SnapshotControl::setEnabled(bool enabled)

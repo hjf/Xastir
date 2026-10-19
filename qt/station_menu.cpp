@@ -2,6 +2,7 @@
 #include "station_menu.h"
 #include "map_widget.h"
 #include "aprs_decoder.h"
+#include "kml_export.h"
 #include <QAction>
 #include <QDateTime>
 #include <QDialog>
@@ -173,30 +174,12 @@ bool StationMenu::reloadObjects(const QString &path,QString *error)
   }
   window_->statusBar()->showMessage(tr("Reloaded %1 object/item records (display only).").arg(updates.size()),5000);return true;
 }
-bool StationMenu::exportKml(const QString &path,QString *error) const
+bool StationMenu::exportKml(const QString &path, QString *error) const
 {
-  QSaveFile file(path);
-  if(!file.open(QIODevice::WriteOnly)) {if(error)*error=file.errorString();return false;}
-  QXmlStreamWriter xml(&file);xml.setAutoFormatting(true);xml.writeStartDocument();
-  xml.writeStartElement("kml");xml.writeDefaultNamespace("http://www.opengis.net/kml/2.2");xml.writeStartElement("Document");
-  xml.writeTextElement("name","APRS stations and trails");
-  auto coordinate=[](double lat,double lon,double altitude) {return QString("%1,%2,%3").arg(lon,0,'f',7).arg(lat,0,'f',7).arg(altitude,0,'f',1);};
-  for(const DataRow *row=stations_->database()->first;row;row=row->n_next) {
-    if(!(row->flag&ST_ACTIVE) || !row->position_valid)continue;
-    xml.writeStartElement("Placemark");xml.writeTextElement("name",QString::fromUtf8(row->call_sign));
-    if(row->comment_data)xml.writeTextElement("description",QString::fromLatin1(row->comment_data->text_ptr));
-    xml.writeStartElement("MultiGeometry");xml.writeStartElement("Point");
-    xml.writeTextElement("coordinates",coordinate(row->latitude,row->longitude,QByteArray(row->altitude).toDouble()));xml.writeEndElement();
-    QStringList segment;
-    auto flush=[&] {if(segment.size()>=2) {xml.writeStartElement("LineString");xml.writeTextElement("tessellate","1");xml.writeTextElement("coordinates",segment.join(' '));xml.writeEndElement();}segment.clear();};
-    for(const TrackRow *p=row->oldest_trackpoint;p;p=p->next) {
-      if(p->flag&TR_NEWTRK)flush();
-      segment<<coordinate(90-p->trail_lat_pos/360000.0,p->trail_long_pos/360000.0-180,p->altitude==-99999?0:p->altitude/10.0);
-    }
-    flush();xml.writeEndElement();xml.writeEndElement();
-  }
-  xml.writeEndElement();xml.writeEndElement();xml.writeEndDocument();
-  if(xml.hasError() || !file.commit()) {if(error)*error=file.errorString();return false;}return true;
+  QList<KmlStation> records;
+  for (const DataRow *row = stations_->database()->first; row; row = row->n_next)
+    if ((row->flag & ST_ACTIVE) && row->position_valid) records.append(copyKmlStation(row));
+  return writeKmlFile(path, records, error);
 }
 
 int StationMenu::importFindu(const QByteArray &data,const QString &callsign,QString *error)

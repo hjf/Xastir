@@ -202,25 +202,25 @@ void ConfigurationUi::timing()
   snapshotInterval->setObjectName("timingSnapshotInterval");
   snapshotInterval->setRange(1, 30); snapshotInterval->setSuffix(tr(" minutes"));
   snapshotInterval->setValue(snapshots_->intervalMinutes());
-  form->addRow(tr("PNG snapshot interval"), snapshotInterval);
+  form->addRow(tr("Snapshot interval"), snapshotInterval);
   auto *directory = new QLineEdit(snapshots_->directory(), dialog);
   directory->setObjectName("timingSnapshotDirectory");
   auto *browse = new QPushButton(tr("Browse…"), dialog);
   auto *directoryRow = new QHBoxLayout;
   directoryRow->addWidget(directory); directoryRow->addWidget(browse);
-  form->addRow(tr("PNG snapshot directory"), directoryRow);
+  form->addRow(tr("Snapshot directory"), directoryRow);
   connect(browse, &QPushButton::clicked, dialog, [dialog, directory] {
-    const auto path = QFileDialog::getExistingDirectory(dialog, tr("PNG snapshot directory"), directory->text());
+    const auto path = QFileDialog::getExistingDirectory(dialog, tr("Snapshot directory"), directory->text());
     if (!path.isEmpty()) directory->setText(path);
   });
-  auto *note = new QLabel(tr("Clear time hides stations and expires trail points. Display Old Data bypasses hiding, but not removal or trail expiry. Aircraft use the legacy five-times-clear cutoff.\n\nRemoval deletes received station state from memory; your station and owned objects/items remain. Cleanup runs every minute. Traffic history and messages are retained independently.\n\nTrail gap limits apply to new points. Zero permits only points with the same time or coordinate; it does not disable the limit.\n\nChanging the beacon interval waits one full interval; periodic sending and TX must be enabled separately in Position Beacon and Interface Control.\n\nGhosting, GPS, object transmission, and serial pacing are not implemented here yet. Enable PNG Snapshots in the File menu to refresh snapshot.png."), dialog);
+  auto *note = new QLabel(tr("Clear time hides stations and expires trail points. Display Old Data bypasses hiding, but not removal or trail expiry. Aircraft use the legacy five-times-clear cutoff.\n\nRemoval deletes received station state from memory; your station and owned objects/items remain. Cleanup runs every minute. Traffic history and messages are retained independently.\n\nTrail gap limits apply to new points. Zero permits only points with the same time or coordinate; it does not disable the limit.\n\nChanging the beacon interval waits one full interval; periodic sending and TX must be enabled separately in Position Beacon and Interface Control.\n\nGhosting, GPS, object transmission, and serial pacing are not implemented here yet. Enable PNG or KML Snapshots in the File menu to refresh snapshot.png or snapshot.kml. KML uses station data even when the map is hidden."), dialog);
   note->setWordWrap(true); form->addRow(note);
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
   layout->addWidget(buttons);
   connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
   connect(buttons, &QDialogButtonBox::accepted, this, [this, dialog, clear, remove, aircraft, dr, beacon, segmentTime, segmentDistance, snapshotInterval, directory] {
     if (directory->text().trimmed().isEmpty()) {
-      QMessageBox::warning(dialog, tr("PNG snapshots"), tr("Choose a snapshot directory."));
+      QMessageBox::warning(dialog, tr("Snapshots"), tr("Choose a snapshot directory."));
       return;
     }
     QSettings settings;

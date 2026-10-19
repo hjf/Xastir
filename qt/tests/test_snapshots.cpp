@@ -2,6 +2,8 @@
 #include "main_window.h"
 #include "map_widget.h"
 #include "snapshot_control.h"
+#include "kml_snapshot.h"
+#include "station_model.h"
 #include <QAction>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -14,6 +16,7 @@
 #include <QSignalSpy>
 #include <QSpinBox>
 #include <QTemporaryDir>
+#include <QXmlStreamReader>
 #include <QtTest>
 
 class SnapshotTest : public QObject
@@ -177,6 +180,83 @@ private slots:
       QVERIFY(snapshots->busy());
     }
     QVERIFY(!QImage(output.filePath("snapshot.png")).isNull());
+  }
+  void kmlCapturesHiddenDataAndPeriodicReplacement() {
+    QTemporaryDir output;
+    MainWindow window(ApplicationOptions{});
+    auto *stations = window.findChild<StationModel *>();
+    stations->applyPacket("REMOTE>APRS:!4903.50N/07201.75W>first & <text>", 'T', 100);
+    stations->applyPacket("REMOTE>APRS:!4903.51N/07201.74W>second", 'T', 110);
+    stations->applyPacket("OWNER>APRS:;Aid Point*092345z4903.50N/07201.75Wh", 'T', 110);
+    stations->applyPacket("OWNER>APRS:)Item!4903.51N/07201.74W-", 'T', 110);
+    stations->applyPacket("STATUS>APRS:>Ready", 'T', 110);
+    auto *snapshots = window.findChild<SnapshotControl *>();
+    auto *kml = window.findChild<KmlSnapshotControl *>();
+    snapshots->configure(output.path(), 1);
+    QSignalSpy saved(kml, &KmlSnapshotControl::saved);
+    auto *action = window.findChild<QAction *>("PULDNFI016");
+    QVERIFY(action && action->property("implemented").toBool());
+    action->trigger();
+    QVERIFY(kml->busy());
+    for (int i = 0; i < 100; ++i) kml->captureNow();
+    QTRY_COMPARE(saved.count(), 1);
+    QFile file(output.filePath("snapshot.kml")); QVERIFY(file.open(QIODevice::ReadOnly));
+    auto data = file.readAll(); file.close();
+    QXmlStreamReader xml(data); int count = 0, lines = 0;
+    while (!xml.atEnd()) { xml.readNext(); if (xml.isStartElement()) { if (xml.name() == "Placemark") ++count; if (xml.name() == "LineString") ++lines; } }
+    QVERIFY(!xml.hasError()); QCOMPARE(count, 3); QCOMPARE(lines, 1);
+    QVERIFY(!data.contains("STATUS")); QVERIFY(data.contains("Aid Point"));
+    auto *timer = kml->findChild<QTimer *>("kmlSnapshotTimer");
+    QCOMPARE(timer->interval(), 60000);
+    stations->applyPacket("OWNER>APRS:)Item_", 'T', 120);
+    timer->setInterval(20);
+    QTRY_VERIFY(saved.count() >= 2);
+    action->trigger(); QTRY_VERIFY(!kml->busy());
+    QVERIFY(!timer->isActive()); QVERIFY(file.open(QIODevice::ReadOnly));
+    QVERIFY(!file.readAll().contains("<name>Item</name>"));
+    QCOMPARE(QDir(output.path()).entryList(QDir::Files), QStringList{"snapshot.kml"});
+  }
+  void kmlFailureRestartAndSupersededCapture() {
+    QTemporaryDir output;
+    const auto blocked = output.filePath("blocked");
+    QFile marker(blocked); QVERIFY(marker.open(QIODevice::WriteOnly)); marker.write("keep"); marker.close();
+    {
+      MainWindow window(ApplicationOptions{});
+      auto *png = window.findChild<SnapshotControl *>();
+      auto *kml = window.findChild<KmlSnapshotControl *>();
+      QSignalSpy saved(kml, &KmlSnapshotControl::saved), errors(kml, &KmlSnapshotControl::errorOccurred);
+      png->configure(blocked, 1); kml->setEnabled(true);
+      QTRY_COMPARE(errors.count(), 1);
+      QVERIFY(!kml->enabled()); QVERIFY(!window.findChild<QAction *>("PULDNFI016")->isChecked());
+      kml->setEnabled(true); png->configure(output.path(), 2);
+      QTRY_COMPARE(saved.count(), 1); QCOMPARE(errors.count(), 1);
+      QVERIFY(kml->enabled()); QVERIFY(QSettings().value("snapshots/kmlEnabled").toBool());
+      QCOMPARE(kml->findChild<QTimer *>("kmlSnapshotTimer")->interval(), 120000);
+    }
+    MainWindow restored(ApplicationOptions{});
+    auto *kml = restored.findChild<KmlSnapshotControl *>();
+    QVERIFY(kml->enabled());
+    QSignalSpy saved(kml, &KmlSnapshotControl::saved); QTRY_COMPARE(saved.count(), 1);
+    QVERIFY(marker.open(QIODevice::ReadOnly)); QCOMPARE(marker.readAll(), QByteArray("keep"));
+  }
+  void kmlWriterEscapesAndBoundsTrailCopy() {
+    StationModel stations;
+    QList<Station> points;
+    for (int i = 0; i < 1100; ++i) {
+      Station s; s.callsign = "REMOTE"; s.position = {49 + i * .00001, -72}; s.heardAt = 10000 + i;
+      points.append(s);
+    }
+    QString error; QVERIFY2(stations.importTrail(points, &error), qPrintable(error));
+    const auto *row = stations.record("REMOTE"); QVERIFY(row);
+    const auto full = copyKmlStation(row); const auto bounded = copyKmlStation(row, 1000);
+    QVERIFY(full.trail.size() > 1000); QCOMPARE(bounded.trail.size(), 1000);
+    QCOMPARE(bounded.trail.last().latitude, full.trail.last().latitude);
+    KmlStation record; record.name = "A & B"; record.description = "<test>";
+    record.trail = {{1, 2, 0, false}, {2, 3, 0, false}, {3, 4, 0, true}, {4, 5, 0, false}};
+    QTemporaryDir output; QVERIFY(writeKmlFile(output.filePath("test.kml"), {record}, &error));
+    QFile file(output.filePath("test.kml")); QVERIFY(file.open(QIODevice::ReadOnly)); auto data = file.readAll();
+    QVERIFY(data.contains("A &amp; B")); QVERIFY(data.contains("&lt;test&gt;")); QCOMPARE(data.count("<LineString>"), 2);
+    QXmlStreamReader xml(data); while (!xml.atEnd()) xml.readNext(); QVERIFY(!xml.hasError());
   }
 };
 QTEST_MAIN(SnapshotTest)

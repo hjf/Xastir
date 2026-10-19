@@ -12,6 +12,8 @@ add_library(xastir_qt_ui STATIC
   display_preferences.cpp display_preferences.h
   timing_settings.h
   snapshot_control.cpp snapshot_control.h
+  kml_export.cpp kml_export.h
+  kml_snapshot.cpp kml_snapshot.h
   legacy_menus.cpp legacy_menus.h
   message_service.cpp message_service.h
   message_ui.cpp message_ui.h

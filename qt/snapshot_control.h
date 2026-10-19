@@ -23,6 +23,7 @@ public:
 public slots:
   void captureNow();
 signals:
+  void configurationChanged();
   void saved(const QString &path);
   void errorOccurred(const QString &error);
 protected:

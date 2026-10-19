@@ -33,6 +33,7 @@ bool readXastirConfig(const QString &path, XastirConfig &config, QString *error)
   result.timing.trailSegmentDegrees = bounded("TRAIL_SEGMENT_DISTANCE", 1, 0, 45);
   result.snapshotIntervalMinutes = bounded("SNAPSHOT_INTERVAL", 5, 1, 30);
   result.snapshotsEnabled = bounded("SNAPSHOTS_ENABLED", 0, 0, 1) != 0;
+  result.kmlSnapshotsEnabled = bounded("KMLSNAPSHOTS_ENABLED", 0, 0, 1) != 0;
   result.trafficUtf8 = bounded("TRAFFIC_UTF8", 1, 0, 1) != 0;
   Selections selection{};
   What_to_display display{};

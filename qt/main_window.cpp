@@ -5,6 +5,7 @@
 #include "file_menu.h"
 #include "configuration_ui.h"
 #include "snapshot_control.h"
+#include "kml_snapshot.h"
 #include "station_model.h"
 #include "agwpe_client.h"
 #include "legacy_menus.h"
@@ -56,6 +57,7 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   createLegacyMenus(this);
   new FileMenu(this, mapWidget_);
   auto *snapshots = new SnapshotControl(this, mapWidget_, options.config);
+  new KmlSnapshotControl(this, stations_, snapshots, options.config);
   auto *fullscreen = new QAction(tr("Toggle fullscreen"), this);
   fullscreen->setObjectName("toggleFullscreen");
   fullscreen->setShortcut(QKeySequence(Qt::Key_F11));

@@ -14,7 +14,7 @@ the README also contains historical milestone descriptions.
 | Position beacons | Fixed-position packet formatting | Explicit TX controls and periodic scheduling |
 | Map overlays | Station selection, distance/bearing, PHG/DF, weather and dead reckoning calculations | Raster/vector painting, labels, display controls and offline maps |
 | History | Station and message restoration APIs | Worker-thread SQLite writes, bounded traffic retention, permanent message archive and safe replay |
-| File operations | Shared station state for replay/export | Printing, KML export, Defaults/Timing dialogs and periodic PNG snapshots |
+| File operations | Shared station state for replay/export | Printing, KML export, Defaults/Timing dialogs and periodic PNG/KML snapshots |
 
 The native Qt application and tests build through CMake without Motif/Xlib
 application dependencies. Qt owns presentation, sockets and storage adapters.
@@ -208,6 +208,25 @@ Offscreen tests cover browser filtering, updates, selection and reopen behavior.
 Distance filtering, automatic bulletin popups, bulletin transmission and
 NWS/BOM alert processing remain unfinished. File log replay still updates station
 state only and does not inject traffic into the message archive.
+
+## Periodic KML snapshots
+
+File → Enable KML Snapshots refreshes `snapshot.kml` using the same directory
+and interval as PNG snapshots in Configure → Timing. KML captures active,
+positioned stations, objects and items even when the map is hidden. The shared
+Qt exporter preserves trail segment boundaries, coordinates and altitude units;
+manual KML export still includes all retained trail points.
+
+Periodic captures copy records in batches of 16, retain at most the most recent
+1,000 trail points per station, and stop with an explicit error above 10,000
+stations or 250,000 trail points. One capture/write may be outstanding. Encoding
+and atomic file replacement run on a worker thread. Write failure disables the
+KML toggle; superseded failures cannot disable a newer configuration. Imported
+`KMLSNAPSHOTS_ENABLED` and Qt settings restore the toggle independently of PNG.
+
+Linux offscreen checks cover hidden-window capture, periodic replacement,
+station/object/item selection, trail boundaries and limits, XML escaping,
+persistence, failure handling and configuration changes during a capture.
 
 ## Remaining migration work
 
