@@ -92,6 +92,15 @@ typedef enum {
   XASTIR_LIST_ALL, XASTIR_LIST_MOBILE, XASTIR_LIST_WEATHER, XASTIR_LIST_LOCAL,
   XASTIR_LIST_LAST, XASTIR_LIST_OBJECTS, XASTIR_LIST_OWN_OBJECTS, XASTIR_LIST_COUNT
 } XastirStationList;
+/* Display conversions extracted from main.c:update_units and the legacy
+ * weather/station lists. Storage and protocol values never use display units. */
+typedef enum {
+  XASTIR_DISPLAY_DISTANCE, XASTIR_DISPLAY_SHORT_DISTANCE, XASTIR_DISPLAY_ALTITUDE,
+  XASTIR_DISPLAY_SPEED, XASTIR_DISPLAY_WIND, XASTIR_DISPLAY_TEMPERATURE,
+  XASTIR_DISPLAY_PRESSURE, XASTIR_DISPLAY_RAIN
+} XastirDisplayQuantity;
+double xastir_display_value(double value, XastirDisplayQuantity quantity, int english);
+const char *xastir_display_unit(XastirDisplayQuantity quantity, int english);
 int xastir_station_list_contains(const DataRow *row, int type);
 /* Name order, or newest first for LAST. skip advances before matching; forward
  * selects the normal direction. Returned rows remain owned by db. */

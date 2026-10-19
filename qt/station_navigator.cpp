@@ -22,6 +22,7 @@ StationNavigator::StationNavigator(QMainWindow *window, StationModel *stations, 
     }
   }
   connect(stations_, &StationModel::stationsChanged, this, [this] { updateFollowing(); refresh(); });
+  connect(map_->preferences(), &DisplayPreferences::changed, this, &StationNavigator::refresh);
   connect(map_, &MapWidget::manuallyPanned, this, &StationNavigator::stopFollowing);
   // Keep a followed position centered even when wheel zoom uses the mouse location.
   connect(map_, &MapWidget::viewChanged, this, &StationNavigator::updateFollowing);
@@ -61,9 +62,9 @@ void StationNavigator::refresh()
   list_->clear();
   for (const auto &station : stations_->stations()) {
     const auto kind = station.kind == StationKind::Station ? tr("Station") : station.kind == StationKind::Object ? tr("Object") : tr("Item");
-    const QString label = tr("%1 — %2%3 — %4, %5").arg(station.callsign, kind,
+    const QString label = tr("%1 — %2%3 — %4").arg(station.callsign, kind,
       station.sourceStation.isEmpty() ? QString() : tr(" (owner %1)").arg(station.sourceStation))
-      .arg(station.position.latitude, 0, 'f', 5).arg(station.position.longitude, 0, 'f', 5);
+      .arg(map_->preferences()->position(station.position));
     if (!label.contains(filter_->text(), Qt::CaseInsensitive)) continue;
     auto *item = new QListWidgetItem(label, list_); item->setData(Qt::UserRole, station.callsign);
     if (station.callsign == selected) list_->setCurrentItem(item);

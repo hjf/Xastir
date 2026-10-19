@@ -10,12 +10,13 @@ class QMainWindow;
 class StationModel;
 class StationNavigator;
 class StationTableModel;
+class DisplayPreferences;
 
 class StationViews : public QObject
 {
   Q_OBJECT
 public:
-  StationViews(QMainWindow *, StationModel *, StationNavigator *, QString ownCallsign);
+  StationViews(QMainWindow *, StationModel *, StationNavigator *, QString ownCallsign, DisplayPreferences *);
 signals:
   void detailsRequested(const QString &name);
 private:
@@ -27,6 +28,7 @@ private:
   QPointer<StationModel> stations_;
   StationNavigator *navigator_;
   StationTableModel *model_;
+  QPointer<DisplayPreferences> preferences_;
   QString own_;
   QPointer<QDialog> lists_[8], aloha_, uptime_;
   QTimer refreshTimer_;

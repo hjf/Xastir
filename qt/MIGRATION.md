@@ -1,6 +1,6 @@
 # Qt migration status
 
-Reviewed on 2026-10-17 on branch `qt`. This is a current implementation overview;
+Reviewed on 2026-10-19 on branch `qt`. This is a current implementation overview;
 the README also contains historical milestone descriptions.
 
 ## Implemented boundaries
@@ -148,10 +148,41 @@ weather units, uptime, and
 ALOHA statistics with Internet-only records excluded. Bulletins, CAD polygons,
 weather alerts and GPS Status still require their unfinished backends.
 
+## Coordinate and unit preferences
+
+File → Configure → Coordinate System selects decimal degrees, degrees/minutes,
+or degrees/minutes/seconds, with a preview and apply/cancel behavior. The shared
+original C coordinate converters supply the display strings. The format applies
+to the map status and border, station details, station lists, Find/Track Station,
+and the preferred-format preview in the coordinate calculator and Center & Zoom.
+Coordinate entry remains explicitly decimal degrees; UTM/MGRS input and display
+remain unfinished.
+
+Enable English Units now switches distance, altitude, station speed, temperature,
+wind, pressure and rainfall across map labels, details, tables, and ALOHA
+statistics. The shared C display service uses the legacy conversion rules.
+Metric is the default; English uses miles/yards, feet, mph, °F, inHg and inches.
+Raw APRS records, numeric table sort values, exports and transmitted packets keep
+their storage/protocol units. Open views update immediately without replaying
+traffic or changing station timestamps.
+
+Dist/Bearing Status follows the original mouse-pointer behavior. Moving over the
+map shows pointer coordinates and, when enabled, distance and true bearing from
+the configured local position. Short distances use meters or yards; longer ones
+use kilometers or miles. Leaving the map restores the center-coordinate status.
+No distance origin is invented when the local position is unavailable.
+
+Qt preferences persist and override imported `COORDINATE_SYSTEM`,
+`DISPLAY_UNITS_ENGLISH`, and `DISPLAY_DIST_BEAR_STATUS`. Invalid saved values
+fall back to imported/default values. Unsupported legacy coordinate systems
+fall back to decimal degrees. These controls affect presentation only.
+Linux tests cover conversions, hemispheres and boundaries, apply/cancel/restart,
+invalid settings, live unit/header updates, retained raw values and cursor status.
+
 ## Remaining migration work
 
-Unfinished menu entries still need implementation, including coordinate-system
-preferences, audio/speech, SmartBeaconing and several logging/export controls.
+Unfinished menu entries still need implementation, including audio/speech,
+SmartBeaconing and several logging/export controls.
 Other gaps include GPS/NMEA integration, station ghosting,
 object/item transmission, telemetry, and NWS processing. Reception
 does not provide an implicit RF/Internet gateway.

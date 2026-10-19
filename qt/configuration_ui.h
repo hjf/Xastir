@@ -18,11 +18,13 @@ public:
 private:
   void defaults();
   void timing();
+  void coordinates();
+  void applyPresentation(PresentationSettings value);
   bool save();
   QMainWindow *window_;
   MapWidget *map_;
   PacketMonitor *monitor_;
   BeaconControl *beacons_;
   SnapshotControl *snapshots_;
-  QPointer<QDialog> defaults_, timing_;
+  QPointer<QDialog> defaults_, timing_, coordinates_;
 };

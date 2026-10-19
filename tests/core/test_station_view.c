@@ -62,6 +62,21 @@ static int list_tests(void)
 }
 int main(void)
 {
+  CHECK(fabs(xastir_display_value(10, XASTIR_DISPLAY_SPEED, 0) - 18.52) < 1e-9);
+  CHECK(fabs(xastir_display_value(10, XASTIR_DISPLAY_SPEED, 1) - 11.508) < 1e-9);
+  CHECK(fabs(xastir_display_value(1000, XASTIR_DISPLAY_DISTANCE, 0) - 1) < 1e-9);
+  CHECK(fabs(xastir_display_value(1609.344, XASTIR_DISPLAY_DISTANCE, 1) - 1) < 1e-9);
+  CHECK(fabs(xastir_display_value(0.9144, XASTIR_DISPLAY_SHORT_DISTANCE, 1) - 1) < 1e-9);
+  CHECK(fabs(xastir_display_value(100, XASTIR_DISPLAY_ALTITUDE, 1) - 328.084) < 1e-9);
+  CHECK(fabs(xastir_display_value(10, XASTIR_DISPLAY_WIND, 0) - 16.09344) < 1e-9);
+  CHECK(fabs(xastir_display_value(-40, XASTIR_DISPLAY_TEMPERATURE, 0) + 40) < 1e-9);
+  CHECK(fabs(xastir_display_value(50, XASTIR_DISPLAY_TEMPERATURE, 0) - 10) < 1e-9);
+  CHECK(fabs(xastir_display_value(50, XASTIR_DISPLAY_TEMPERATURE, 1) - 50) < 1e-9);
+  CHECK(fabs(xastir_display_value(1000, XASTIR_DISPLAY_PRESSURE, 1) - 29.53) < 1e-9);
+  CHECK(fabs(xastir_display_value(12, XASTIR_DISPLAY_RAIN, 0) - 3.048) < 1e-9);
+  CHECK(fabs(xastir_display_value(12, XASTIR_DISPLAY_RAIN, 1) - .12) < 1e-9);
+  CHECK(!strcmp(xastir_display_unit(XASTIR_DISPLAY_SPEED, 1), "mph"));
+  CHECK(!strcmp(xastir_display_unit(XASTIR_DISPLAY_PRESSURE, 0), "hPa"));
   CHECK(list_tests() == 0);
   DataRow row={0};
   Selections s={0,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1};

@@ -155,13 +155,13 @@ private slots:
     auto *table = open(window, "PULDNVI005", 2); QVERIFY(table); QTRY_COMPARE(table->model()->rowCount(), 2);
     const auto *model = table->model();
     QCOMPARE(model->index(1, 0).data().toString(), QString("WXONLY"));
-    QCOMPARE(model->index(1, 11).data().toDouble(), 50.0);
-    QCOMPARE(model->index(1, 12).data().toDouble(), 10.0);
+    QCOMPARE(model->index(1, 11).data().toDouble(), 10.0);
+    QCOMPARE(model->index(1, 12).data().toDouble(), 16.09344);
     QCOMPARE(model->index(1, 16).data().toDouble(), 1012.3);
-    QCOMPARE(model->index(1, 17).data().toDouble(), .12);
+    QCOMPARE(model->index(1, 17).data().toDouble(), 3.048);
     QVERIFY(!table->isColumnHidden(11)); QVERIFY(table->isColumnHidden(9));
     table = open(window, "PULDNVI008", 7); QVERIFY(table); QTRY_COMPARE(names(table), QStringList{"LOCAL"});
-    QCOMPARE(table->model()->index(0, 11).data().toDouble(), 60.0);
+    QVERIFY(qAbs(table->model()->index(0, 11).data().toDouble() - 15.5555556) < .00001);
   }
   void sourceDestroyedWithSelectedRow()
   {

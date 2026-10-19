@@ -13,14 +13,16 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QVBoxLayout>
+#include <cstdlib>
 StationDetails::StationDetails(QMainWindow *w, StationModel *s, MapWidget *m, StationNavigator *n,
                                MessageUi *messages, QString own)
     : QObject(w), window_(w), stations_(s), map_(m), navigator_(n), messages_(messages), own_(own)
 {
   connect(m, &MapWidget::stationClicked, this, &StationDetails::open);
   connect(s, &StationModel::stationsChanged, this, &StationDetails::refresh);
-  auto *views = new StationViews(w, s, n, own);
+  auto *views = new StationViews(w, s, n, own, m->preferences());
   connect(views, &StationViews::detailsRequested, this, &StationDetails::open);
+  connect(m->preferences(), &DisplayPreferences::changed, this, &StationDetails::refresh);
 }
 void StationDetails::open(const QString &name)
 {
@@ -96,9 +98,7 @@ void StationDetails::refresh()
   lines << tr("Last heard: %1")
                .arg(QDateTime::fromSecsSinceEpoch(r->sec_heard).toString(Qt::ISODate));
   if (r->position_valid)
-    lines << tr("Position: %1°, %2°")
-               .arg(station.position.latitude, 0, 'f', 5)
-               .arg(station.position.longitude, 0, 'f', 5);
+    lines << tr("Position: %1").arg(map_->preferences()->position(station.position));
   else
     lines << tr("Position: not yet received");
   if (r->position_valid && stations_->stations().contains(own_))
@@ -108,16 +108,16 @@ void StationDetails::refresh()
     const double distance =
         xastir_distance(local.position.latitude, local.position.longitude,
                         station.position.latitude, station.position.longitude, &bearing);
-    lines << tr("Distance / bearing: %1 km / %2°")
-                 .arg(distance / 1000, 0, 'f', 2)
+    lines << tr("Distance / bearing: %1 / %2°")
+                 .arg(map_->preferences()->distance(distance))
                  .arg(bearing, 0, 'f', 0);
   }
   if (r->course[0])
     lines << tr("Course: %1°").arg(QString::fromLatin1(r->course));
   if (r->speed[0])
-    lines << tr("Speed: %1 knots").arg(QString::fromLatin1(r->speed));
+    lines << tr("Speed: %1").arg(map_->preferences()->measure(std::atof(r->speed), XASTIR_DISPLAY_SPEED));
   if (r->altitude[0])
-    lines << tr("Altitude: %1 m").arg(QString::fromLatin1(r->altitude));
+    lines << tr("Altitude: %1").arg(map_->preferences()->measure(std::atof(r->altitude), XASTIR_DISPLAY_ALTITUDE));
   if (r->node_path_ptr)
     lines << tr("Path: %1").arg(QString::fromLatin1(r->node_path_ptr));
   for (auto *c = r->comment_data; c; c = c->next)
@@ -131,9 +131,14 @@ void StationDetails::refresh()
   if (r->weather_data)
   {
     const auto *wx = r->weather_data;
-    lines << tr("Weather: %1°F; wind %2 mph from %3°; gust %4 mph; humidity %5%; pressure %6 hPa")
-                 .arg(wx->wx_temp, wx->wx_speed, wx->wx_course, wx->wx_gust, wx->wx_hum,
-                      wx->wx_baro);
+    auto measure = [this](const char *text, XastirDisplayQuantity quantity) {
+      bool ok = false; const double value = QByteArray(text).toDouble(&ok);
+      return ok ? map_->preferences()->measure(value, quantity, quantity == XASTIR_DISPLAY_PRESSURE ? 2 : 1) : QStringLiteral("—");
+    };
+    lines << tr("Weather: %1; wind %2 from %3°; gust %4; humidity %5%; pressure %6")
+                 .arg(measure(wx->wx_temp, XASTIR_DISPLAY_TEMPERATURE), measure(wx->wx_speed, XASTIR_DISPLAY_WIND),
+                      QString::fromLatin1(wx->wx_course), measure(wx->wx_gust, XASTIR_DISPLAY_WIND),
+                      QString::fromLatin1(wx->wx_hum), measure(wx->wx_baro, XASTIR_DISPLAY_PRESSURE));
   }
   text_->setText(lines.join('\n'));
 }

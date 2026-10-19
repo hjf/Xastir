@@ -10,6 +10,7 @@
 #include <QPushButton>
 #include <QAction>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -26,6 +27,25 @@ ConfigurationUi::ConfigurationUi(QMainWindow *window, MapWidget *map, PacketMoni
                                  BeaconControl *beacons, SnapshotControl *snapshots, const XastirConfig &config)
   : QObject(window), window_(window), map_(map), monitor_(monitor), beacons_(beacons), snapshots_(snapshots)
 {
+  auto *preferences = map_->preferences();
+  preferences->restore(config.presentation);
+  for (const char *id : {"PULDNCF002", "PULDNUT001", "PULDNDB001"}) {
+    if (auto *action = window_->findChild<QAction *>(id)) {
+      disconnect(action, nullptr, window_, nullptr); action->setProperty("implemented", true);
+      connect(action, &QAction::triggered, this, [this, id](bool checked) {
+        if (QByteArray(id) == "PULDNCF002") { coordinates(); return; }
+        auto value = map_->preferences()->value();
+        if (QByteArray(id) == "PULDNUT001") value.englishUnits = checked;
+        else value.distanceBearing = checked;
+        applyPresentation(value);
+      });
+    }
+  }
+  auto sync = [this, preferences] {
+    if (auto *action = window_->findChild<QAction *>("PULDNUT001")) action->setChecked(preferences->value().englishUnits);
+    if (auto *action = window_->findChild<QAction *>("PULDNDB001")) action->setChecked(preferences->value().distanceBearing);
+  };
+  connect(preferences, &DisplayPreferences::changed, this, sync); sync();
   QSettings settings;
   auto bounded = [&settings](const char *key, int fallback, int minimum, int maximum) {
     bool ok = false;
@@ -53,6 +73,43 @@ ConfigurationUi::ConfigurationUi(QMainWindow *window, MapWidget *map, PacketMoni
               [this, timing = QByteArray(id) == "PULDNCF003"] { if (timing) this->timing(); else defaults(); });
     }
   }
+}
+
+void ConfigurationUi::applyPresentation(PresentationSettings value)
+{
+  if (map_->preferences()->save(value)) return;
+  window_->findChild<QAction *>("PULDNUT001")->setChecked(map_->preferences()->value().englishUnits);
+  window_->findChild<QAction *>("PULDNDB001")->setChecked(map_->preferences()->value().distanceBearing);
+  QMessageBox::warning(window_, tr("Display preferences"), tr("Could not save display preferences."));
+}
+
+void ConfigurationUi::coordinates()
+{
+  if (coordinates_) { coordinates_->show(); coordinates_->raise(); return; }
+  auto *dialog = new QDialog(window_); coordinates_ = dialog;
+  dialog->setObjectName("configureCoordinates"); dialog->setWindowTitle(tr("Coordinate System"));
+  dialog->setAttribute(Qt::WA_DeleteOnClose); dialog->setWindowModality(Qt::WindowModal);
+  auto *form = new QFormLayout(dialog);
+  auto *choice = new QComboBox(dialog); choice->setObjectName("coordinateSystem");
+  choice->addItems({tr("Decimal degrees"), tr("Degrees and decimal minutes"), tr("Degrees, minutes and seconds")});
+  choice->setCurrentIndex(map_->preferences()->value().coordinateSystem); form->addRow(tr("Display format"), choice);
+  auto *preview = new QLabel(dialog); preview->setObjectName("coordinatePreview"); form->addRow(preview);
+  auto showPreview = [this, choice, preview] {
+    DisplayPreferences temporary;
+    auto value = map_->preferences()->value(); value.coordinateSystem = choice->currentIndex(); temporary.setValue(value);
+    preview->setText(temporary.position(map_->centerCoordinate()));
+  };
+  connect(choice, &QComboBox::currentIndexChanged, dialog, showPreview); showPreview();
+  auto *note = new QLabel(tr("Applies to displayed positions. Coordinate entry remains in decimal degrees. UTM and MGRS are not implemented yet."), dialog);
+  note->setWordWrap(true); form->addRow(note);
+  auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog); form->addRow(buttons);
+  connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+  connect(buttons, &QDialogButtonBox::accepted, this, [this, choice, dialog] {
+    auto value = map_->preferences()->value(); value.coordinateSystem = choice->currentIndex();
+    if (!map_->preferences()->save(value)) { QMessageBox::warning(dialog, tr("Coordinate System"), tr("Could not save display preferences.")); return; }
+    dialog->accept();
+  });
+  dialog->resize(440, 220); dialog->show();
 }
 
 bool ConfigurationUi::save()

@@ -38,6 +38,35 @@ static void view_substr(char *out, const char *in, size_t count) {
 }
 /* Extracted from get_list_member/stations_types in list_gui.c. A single
  * predicate also makes object membership consistent in both directions. */
+double xastir_display_value(double value, XastirDisplayQuantity quantity, int english)
+{
+  switch (quantity) {
+    case XASTIR_DISPLAY_DISTANCE: return value / (english ? 1609.344 : 1000.0);
+    case XASTIR_DISPLAY_SHORT_DISTANCE: return value / (english ? 0.9144 : 1.0);
+    case XASTIR_DISPLAY_ALTITUDE: return value * (english ? 3.28084 : 1.0);
+    case XASTIR_DISPLAY_SPEED: return value * (english ? 1.1508 : 1.852);
+    case XASTIR_DISPLAY_WIND: return value * (english ? 1.0 : 1.609344);
+    case XASTIR_DISPLAY_TEMPERATURE: return english ? value : (value - 32.0) * 5.0 / 9.0;
+    case XASTIR_DISPLAY_PRESSURE: return value * (english ? 0.02953 : 1.0);
+    case XASTIR_DISPLAY_RAIN: return value * (english ? 0.01 : 0.254);
+    default: return value;
+  }
+}
+const char *xastir_display_unit(XastirDisplayQuantity quantity, int english)
+{
+  switch (quantity) {
+    case XASTIR_DISPLAY_DISTANCE: return english ? "mi" : "km";
+    case XASTIR_DISPLAY_SHORT_DISTANCE: return english ? "yd" : "m";
+    case XASTIR_DISPLAY_ALTITUDE: return english ? "ft" : "m";
+    case XASTIR_DISPLAY_SPEED:
+    case XASTIR_DISPLAY_WIND: return english ? "mph" : "km/h";
+    case XASTIR_DISPLAY_TEMPERATURE: return english ? "F" : "C";
+    case XASTIR_DISPLAY_PRESSURE: return english ? "inHg" : "hPa";
+    case XASTIR_DISPLAY_RAIN: return english ? "in" : "mm";
+    default: return "";
+  }
+}
+
 int xastir_station_list_contains(const DataRow *row, int type)
 {
   if (!row) return 0;

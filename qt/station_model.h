@@ -57,6 +57,7 @@ public:
   bool importTrail(const QList<Station> &points, QString *error = nullptr);
   void updateWeather(const QString &name, const WeatherRow &weather, char dataVia, bool direct, qint64 heardAt = 0);
   void setOwnCallsign(const QString &callsign) { ownCallsign_ = callsign; }
+  const QString &ownCallsign() const { return ownCallsign_; }
   void setTiming(const TimingSettings &timing);
 
 signals:

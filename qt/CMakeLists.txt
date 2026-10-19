@@ -9,6 +9,7 @@ add_library(xastir_qt_ui STATIC
   main_window.cpp main_window.h
   file_menu.cpp file_menu.h
   configuration_ui.cpp configuration_ui.h
+  display_preferences.cpp display_preferences.h
   timing_settings.h
   snapshot_control.cpp snapshot_control.h
   legacy_menus.cpp legacy_menus.h
@@ -68,6 +69,14 @@ install(TARGETS xastir-qt RUNTIME DESTINATION bin BUNDLE DESTINATION .)
 
 if(BUILD_TESTING)
   find_package(Qt6 6.4 REQUIRED COMPONENTS Test)
+  qt_add_executable(test_display_preferences tests/test_display_preferences.cpp)
+  target_link_libraries(test_display_preferences PRIVATE xastir_qt_ui Qt6::Test)
+  set_target_properties(test_display_preferences PROPERTIES WIN32_EXECUTABLE FALSE)
+  if(TARGET Qt6::QOffscreenIntegrationPlugin)
+    qt_import_plugins(test_display_preferences INCLUDE Qt6::QOffscreenIntegrationPlugin)
+  endif()
+  add_test(NAME display_preferences COMMAND test_display_preferences)
+  set_tests_properties(display_preferences PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
   qt_add_executable(test_station_views tests/test_station_views.cpp)
   target_link_libraries(test_station_views PRIVATE xastir_qt_ui Qt6::Test)
   set_target_properties(test_station_views PROPERTIES WIN32_EXECUTABLE FALSE)

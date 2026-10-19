@@ -3,6 +3,7 @@
 #include "station_model.h"
 #include "station_navigator.h"
 #include "station_view.h"
+#include "display_preferences.h"
 #include <QAbstractTableModel>
 #include <QAction>
 #include <QDialog>
@@ -23,7 +24,7 @@ enum Column { Name, Kind, Owner, Heard, Packets, Position, Via, Path, Course, Sp
               Temperature, Wind, WindDirection, Gust, Humidity, Pressure, Rain24, Text, ColumnCount };
 enum Role { SortRole = Qt::UserRole, MembershipRole };
 constexpr int OwnWeather = XASTIR_LIST_COUNT;
-struct Row { QList<QVariant> cells; int membership = 0; };
+struct Row { QList<QVariant> cells; int membership = 0; std::optional<map::Coordinate> position; };
 QVariant number(const char *text)
 {
   bool ok = false;
@@ -41,8 +42,10 @@ Row snapshot(const DataRow *record)
   v[Owner] = QString::fromUtf8(record->origin);
   v[Heard] = qint64(record->sec_heard);
   v[Packets] = record->num_packets;
-  if (record->position_valid)
+  if (record->position_valid) {
     v[Position] = QString("%1, %2").arg(record->latitude, 0, 'f', 5).arg(record->longitude, 0, 'f', 5);
+    row.position = map::Coordinate{record->latitude, record->longitude};
+  }
   v[Via] = record->data_via == 'T' ? QObject::tr("AGWPE")
       : record->data_via == 'I' ? QObject::tr("APRS-IS") : QObject::tr("Replay/import");
   v[Path] = QString::fromLatin1(record->node_path_ptr ? record->node_path_ptr : "");
@@ -52,7 +55,7 @@ Row snapshot(const DataRow *record)
     v[WindDirection] = number(wx->wx_course); v[Gust] = number(wx->wx_gust);
     v[Humidity] = number(wx->wx_hum); v[Pressure] = number(wx->wx_baro);
     // Legacy weather storage uses hundredths of an inch for precipitation.
-    if (const auto rain = number(wx->wx_prec_24); rain.isValid()) v[Rain24] = rain.toDouble() / 100.0;
+    v[Rain24] = number(wx->wx_prec_24);
   }
   const CommentRow *latest = record->comment_data;
   if (record->status_data && (!latest || record->status_data->sec_heard >= latest->sec_heard)) latest = record->status_data;
@@ -68,7 +71,8 @@ Row snapshot(const DataRow *record)
 class StationTableModel : public QAbstractTableModel
 {
 public:
-  StationTableModel(StationModel *stations, QObject *parent) : QAbstractTableModel(parent), stations_(stations), batch_(this)
+  StationTableModel(StationModel *stations, DisplayPreferences *preferences, QObject *parent)
+    : QAbstractTableModel(parent), stations_(stations), preferences_(preferences), batch_(this)
   {
     batch_.setSingleShot(true);
     connect(&batch_, &QTimer::timeout, this, [this] { scan(); });
@@ -76,15 +80,28 @@ public:
       batch_.stop(); busy_ = false;
       beginResetModel(); rows_.clear(); pending_.clear(); endResetModel();
     });
+    connect(preferences, &DisplayPreferences::changed, this, [this] {
+      emit headerDataChanged(Qt::Horizontal, 0, ColumnCount - 1);
+      if (!rows_.isEmpty()) emit dataChanged(index(0, 0), index(int(rows_.size()) - 1, ColumnCount - 1));
+    });
   }
   int rowCount(const QModelIndex &parent = {}) const override { return parent.isValid() ? 0 : int(rows_.size()); }
   int columnCount(const QModelIndex &parent = {}) const override { return parent.isValid() ? 0 : ColumnCount; }
   QVariant headerData(int section, Qt::Orientation orientation, int role) const override
   {
     if (orientation != Qt::Horizontal || role != Qt::DisplayRole) return {};
-    const QStringList labels{tr("Name"), tr("Type"), tr("Owner"), tr("Last heard"), tr("Packets"), tr("Latitude, longitude"),
+    QStringList labels{tr("Name"), tr("Type"), tr("Owner"), tr("Last heard"), tr("Packets"), tr("Latitude, longitude"),
       tr("Latest source"), tr("Path"), tr("Course (°)"), tr("Speed (knots)"), tr("Altitude (m)"), tr("Temperature (°F)"),
       tr("Wind (mph)"), tr("Wind direction (°)"), tr("Gust (mph)"), tr("Humidity (%)"), tr("Pressure (hPa)"), tr("Rain 24h (in)"), tr("Latest comment/status")};
+    if (preferences_) {
+      labels[Speed] = tr("Speed (%1)").arg(preferences_->unit(XASTIR_DISPLAY_SPEED));
+      labels[Altitude] = tr("Altitude (%1)").arg(preferences_->unit(XASTIR_DISPLAY_ALTITUDE));
+      labels[Temperature] = tr("Temperature (°%1)").arg(preferences_->unit(XASTIR_DISPLAY_TEMPERATURE));
+      labels[Wind] = tr("Wind (%1)").arg(preferences_->unit(XASTIR_DISPLAY_WIND));
+      labels[Gust] = tr("Gust (%1)").arg(preferences_->unit(XASTIR_DISPLAY_WIND));
+      labels[Pressure] = tr("Pressure (%1)").arg(preferences_->unit(XASTIR_DISPLAY_PRESSURE));
+      labels[Rain24] = tr("Rain 24h (%1)").arg(preferences_->unit(XASTIR_DISPLAY_RAIN));
+    }
     return section >= 0 && section < labels.size() ? labels[section] : QVariant();
   }
   QVariant data(const QModelIndex &index, int role) const override
@@ -97,6 +114,20 @@ public:
     if (role != Qt::DisplayRole && role != Qt::ToolTipRole) return {};
     if (!value.isValid() || value.toString().isEmpty()) return QStringLiteral("—");
     if (index.column() == Heard) return QDateTime::fromSecsSinceEpoch(value.toLongLong()).toString("yyyy-MM-dd HH:mm:ss");
+    if (preferences_) {
+      if (index.column() == Position && row.position) return preferences_->position(*row.position);
+      XastirDisplayQuantity quantity;
+      switch (index.column()) {
+        case Speed: quantity = XASTIR_DISPLAY_SPEED; break;
+        case Altitude: quantity = XASTIR_DISPLAY_ALTITUDE; break;
+        case Temperature: quantity = XASTIR_DISPLAY_TEMPERATURE; break;
+        case Wind: case Gust: quantity = XASTIR_DISPLAY_WIND; break;
+        case Pressure: quantity = XASTIR_DISPLAY_PRESSURE; break;
+        case Rain24: quantity = XASTIR_DISPLAY_RAIN; break;
+        default: return value;
+      }
+      return preferences_->convert(value.toDouble(), quantity);
+    }
     return value;
   }
   bool busy() const { return busy_; }
@@ -120,6 +151,7 @@ private:
     beginResetModel(); rows_ = std::move(pending_); busy_ = false; endResetModel();
   }
   QPointer<StationModel> stations_;
+  QPointer<DisplayPreferences> preferences_;
   QTimer batch_;
   bool busy_ = false;
   QByteArray after_;
@@ -146,9 +178,9 @@ private:
 };
 }
 
-StationViews::StationViews(QMainWindow *window, StationModel *stations, StationNavigator *navigator, QString own)
+StationViews::StationViews(QMainWindow *window, StationModel *stations, StationNavigator *navigator, QString own, DisplayPreferences *preferences)
   : QObject(window), window_(window), stations_(stations), navigator_(navigator),
-    model_(new StationTableModel(stations, this)), own_(std::move(own)), refreshTimer_(this), startedAt_(QDateTime::currentDateTime())
+    model_(new StationTableModel(stations, preferences, this)), preferences_(preferences), own_(std::move(own)), refreshTimer_(this), startedAt_(QDateTime::currentDateTime())
 {
   elapsed_.start();
   const struct { const char *id; int type; } actions[] = {
@@ -260,13 +292,14 @@ void StationViews::aloha()
     aloha_stats stats{};
     const double radius = xastir_aloha_radius(stations_->database(), local->latitude, local->longitude, &stats);
     text->setText(tr("Center: %1\nRadius: %2\n\nStations considered: %3\nDigipeaters: %4\nMobiles in motion: %5\nOther mobiles: %6\nWeather stations: %7\nHome stations: %8\n\nCalculated: %9\nUses retained TNC reception records. Select Refresh to recalculate.")
-      .arg(own_, radius < 0 ? tr("indeterminate") : tr("%1 km").arg(radius / 1000, 0, 'f', 2))
+      .arg(own_, radius < 0 ? tr("indeterminate") : preferences_ ? preferences_->distance(radius) : QString::number(radius))
       .arg(stats.total).arg(stats.digis).arg(stats.mobiles_in_motion).arg(stats.other_mobiles).arg(stats.wxs).arg(stats.homes)
       .arg(QDateTime::currentDateTime().toString(Qt::ISODate)));
   };
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
   auto *refresh = buttons->addButton(tr("Refresh"), QDialogButtonBox::ActionRole); refresh->setObjectName("alohaRefresh");
   connect(refresh, &QPushButton::clicked, dialog, calculate);
+  connect(preferences_, &DisplayPreferences::changed, dialog, calculate);
   connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close); layout->addWidget(buttons);
   calculate(); dialog->resize(430, 380); dialog->show();
 }

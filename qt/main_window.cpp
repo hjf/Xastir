@@ -91,6 +91,7 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   });
 
   auto *position = new QLabel(this);
+  position->setObjectName("mapPositionStatus");
   auto *stationCount = new QLabel(this);
   statusBar()->addPermanentWidget(stationCount);
   auto updateCount = [this, stationCount] {
@@ -110,11 +111,10 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
     if (mapWidget_->baseMap() == "raster") status->showMessage(message);
   });
   auto updatePosition = [mapWidget, position] {
-    const auto center = mapWidget->centerCoordinate();
-    position->setText(tr("%1°, %2°   Zoom %3")
-      .arg(center.latitude, 0, 'f', 4).arg(center.longitude, 0, 'f', 4).arg(mapWidget->zoomLevel()));
+    position->setText(mapWidget->statusText());
   };
   connect(mapWidget, &MapWidget::viewChanged, this, updatePosition);
+  connect(mapWidget, &MapWidget::statusChanged, this, updatePosition);
   updatePosition();
   statusBar()->showMessage(tr("Loading map…"));
   messages_ = new MessageService(options.config.callsign, this);

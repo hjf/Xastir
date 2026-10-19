@@ -15,6 +15,7 @@ class TileSource;
 class VectorMaps;
 class StationModel;
 class QPainter;
+class DisplayPreferences;
 
 class MapWidget : public QWidget
 {
@@ -23,6 +24,9 @@ class MapWidget : public QWidget
 public:
   MapWidget(TileSource *tiles, map::Coordinate center, int zoom, QWidget *parent = nullptr);
   map::Coordinate centerCoordinate() const;
+  DisplayPreferences *preferences() const { return preferences_; }
+  QString statusText() const;
+  map::Coordinate screenToCoordinate(QPointF point) const;
   int zoomLevel() const { return zoom_; }
   void setView(map::Coordinate center, int zoom);
   void setStationModel(StationModel *stations);
@@ -59,6 +63,7 @@ public:
 signals:
   void stationClicked(const QString &name);
   void viewChanged();
+  void statusChanged();
   void manuallyPanned();
   void baseMapChanged();
   void mapStatusChanged(const QString &message);
@@ -73,6 +78,7 @@ protected:
   void mouseReleaseEvent(QMouseEvent *event) override;
   void wheelEvent(QWheelEvent *event) override;
   void keyPressEvent(QKeyEvent *event) override;
+  void leaveEvent(QEvent *event) override;
 
 private:
   friend class MapTest;
@@ -92,6 +98,8 @@ private:
   void drawRange(QPainter &painter, map::Coordinate center, double meters, double start = 0, double span = 360);
 
   TimingSettings timing_;
+  DisplayPreferences *preferences_;
+  std::optional<map::Coordinate> cursorCoordinate_;
   VectorMaps *vectors_;
   QString baseMap_ = "raster", rasterAttribution_;
   int vectorLayers_ = 15;

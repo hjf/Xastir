@@ -158,6 +158,11 @@ void MapMenu::coordinates(bool calculator)
   const auto center = map_->centerCoordinate();
   auto *lat = spin(tr("Latitude (decimal degrees)"), "mapLatitude", 90, center.latitude);
   auto *lon = spin(tr("Longitude (decimal degrees)"), "mapLongitude", 180, center.longitude);
+  auto *preferred = new QLabel(d); preferred->setObjectName("coordinatePreferred"); form->addRow(preferred);
+  auto preferredPosition = [this, lat, lon, preferred] { preferred->setText(map_->preferences()->position({lat->value(), lon->value()})); };
+  connect(lat, &QDoubleSpinBox::valueChanged, d, preferredPosition);
+  connect(lon, &QDoubleSpinBox::valueChanged, d, preferredPosition);
+  connect(map_->preferences(), &DisplayPreferences::changed, d, preferredPosition); preferredPosition();
   auto *zoom = new QSpinBox(d); zoom->setObjectName("mapZoom"); zoom->setRange(map::MinZoom, map::MaxZoom);
   zoom->setValue(map_->zoomLevel()); form->addRow(tr("Zoom"), zoom);
   auto *result = new QLabel(d); result->setObjectName("coordinateResult"); result->setTextInteractionFlags(Qt::TextSelectableByMouse);

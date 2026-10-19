@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "map_widget.h"
+#include "display_preferences.h"
 #include "tile_source.h"
 #include "vector_maps.h"
 #include "station_model.h"
@@ -25,6 +26,9 @@ MapWidget::MapWidget(TileSource *tiles, map::Coordinate center, int zoom, QWidge
   : QWidget(parent), tiles_(tiles), attribution_(new QLabel(this)),
     zoom_(std::clamp(zoom, map::MinZoom, map::MaxZoom))
 {
+  preferences_ = new DisplayPreferences(this);
+  connect(preferences_, &DisplayPreferences::changed, this, [this] { update(); emit statusChanged(); });
+  setMouseTracking(true);
   vectors_ = new VectorMaps(this);
   connect(vectors_, &VectorMaps::changed, this, qOverload<>(&MapWidget::update));
   connect(vectors_, &VectorMaps::statusChanged, this, [this](const QString &source, const QString &message) {
@@ -56,6 +60,21 @@ map::Coordinate MapWidget::centerCoordinate() const
 {
   return map::fromWorld(center_, zoom_);
 }
+map::Coordinate MapWidget::screenToCoordinate(QPointF point) const { return map::fromWorld(viewportOrigin() + point, zoom_); }
+QString MapWidget::statusText() const
+{
+  const auto point = cursorCoordinate_.value_or(centerCoordinate());
+  QString text = preferences_->position(point) + tr("   Zoom %1").arg(zoom_);
+  if (preferences_->value().distanceBearing && cursorCoordinate_ && stations_) {
+    const DataRow *local = stations_->record(stations_->ownCallsign());
+    if (local && (local->flag & ST_MYSTATION) && local->position_valid) {
+      double bearing = 0;
+      const double meters = xastir_distance(local->latitude, local->longitude, point.latitude, point.longitude, &bearing);
+      text += tr("   %1 / %2°").arg(preferences_->distance(meters, 2, true)).arg(bearing, 0, 'f', 0);
+    }
+  }
+  return text;
+}
 
 void MapWidget::setView(map::Coordinate center, int zoom)
 {
@@ -73,6 +92,7 @@ void MapWidget::setStationModel(StationModel *stations)
   {
     stations_->setTiming(timing_);
     connect(stations_, &StationModel::stationsChanged, this, qOverload<>(&MapWidget::update));
+    connect(stations_, &StationModel::stationsChanged, this, [this] { if (preferences_->value().distanceBearing) emit statusChanged(); });
     connect(stations_, &QObject::destroyed, this, qOverload<>(&MapWidget::update));
   }
   update();
@@ -330,20 +350,20 @@ void MapWidget::drawStations(QPainter &painter)
     QStringList lines;
     if (display_.callsign) lines << QString::fromUtf8(row->tactical_call_sign ? row->tactical_call_sign : row->call_sign);
     if (display_.course && row->heading_valid) lines << tr("%1°").arg(row->heading, 0, 'f', 0);
-    if (display_.speed && row->speed[0]) lines << (display_.speed_short ? tr("%1k").arg(std::atof(row->speed)*1.852,0,'f',0) : tr("%1 km/h").arg(std::atof(row->speed)*1.852,0,'f',1));
-    if (display_.altitude && row->altitude[0]) lines << tr("%1 m").arg(QString::fromLatin1(row->altitude));
+    if (display_.speed && row->speed[0]) lines << preferences_->measure(std::atof(row->speed), XASTIR_DISPLAY_SPEED, display_.speed_short ? 0 : 1);
+    if (display_.altitude && row->altitude[0]) lines << preferences_->measure(std::atof(row->altitude), XASTIR_DISPLAY_ALTITUDE, 0);
     if (display_.last_heard) lines << tr("%1s ago").arg(std::max<qint64>(0,QDateTime::currentSecsSinceEpoch()-row->sec_heard));
     if (display_.dist_bearing && local) {
       double bearing; const double distance=xastir_distance(local->latitude,local->longitude,row->latitude,row->longitude,&bearing);
-      lines << tr("%1 km / %2°").arg(distance/1000,0,'f',1).arg(bearing,0,'f',0);
+      lines << tr("%1 / %2°").arg(preferences_->distance(distance, 1)).arg(bearing,0,'f',0);
     }
     if (display_.weather && display_.weather_text && row->weather_data) {
       const auto *wx=row->weather_data;
-      if (wx->wx_temp[0]) lines << tr("%1°C").arg((std::atof(wx->wx_temp)-32)*5/9,0,'f',1);
+      if (wx->wx_temp[0]) lines << preferences_->measure(std::atof(wx->wx_temp), XASTIR_DISPLAY_TEMPERATURE);
       if (!display_.temperature_only) {
-        if (wx->wx_speed[0]) lines << tr("Wind %1 km/h").arg(std::atof(wx->wx_speed)*1.609344,0,'f',1);
+        if (wx->wx_speed[0]) lines << tr("Wind %1").arg(preferences_->measure(std::atof(wx->wx_speed), XASTIR_DISPLAY_WIND));
         if (wx->wx_hum[0]) lines << tr("RH %1%").arg(QString::fromLatin1(wx->wx_hum));
-        if (wx->wx_baro[0]) lines << tr("%1 hPa").arg(QString::fromLatin1(wx->wx_baro));
+        if (wx->wx_baro[0]) lines << preferences_->measure(std::atof(wx->wx_baro), XASTIR_DISPLAY_PRESSURE, 2);
       }
     }
     const QString text = lines.join(" · ");
@@ -475,6 +495,7 @@ void MapWidget::hideEvent(QHideEvent *event)
 void MapWidget::updateView()
 {
   center_ = map::constrainCenter(center_, zoom_);
+  cursorCoordinate_.reset();
   update();
   if (isVisible())
     tileTimer_.start(75);
@@ -509,6 +530,13 @@ void MapWidget::mouseMoveEvent(QMouseEvent *event)
   }
   else
     QWidget::mouseMoveEvent(event);
+  cursorCoordinate_ = screenToCoordinate(event->position());
+  emit statusChanged();
+}
+
+void MapWidget::leaveEvent(QEvent *event)
+{
+  cursorCoordinate_.reset(); emit statusChanged(); QWidget::leaveEvent(event);
 }
 
 void MapWidget::mouseReleaseEvent(QMouseEvent *event)
@@ -637,15 +665,12 @@ void MapWidget::drawGrid(QPainter &painter)
     painter.fillRect(QRect(0, frame, frame, height() - 2 * frame), chromeBackground());
     painter.fillRect(QRect(width() - frame, frame, frame, height() - 2 * frame), chromeBackground());
   }
-  auto coordinateLabel = [](double value, bool latitude) {
-    char text[64];
-    if (latitude) xastir_convert_lat_l2s(std::lround((90 - value) * 360000), text, sizeof(text), CONVERT_DEC_DEG);
-    else {
+  auto coordinateLabel = [this](double value, bool latitude) {
+    if (!latitude) {
       // Label the correct hemisphere even across the dateline or repeated worlds.
       value -= std::floor((value + 180) / 360) * 360;
-      xastir_convert_lon_l2s(std::lround((180 + value) * 360000), text, sizeof(text), CONVERT_DEC_DEG);
     }
-    return QString::fromLatin1(text).trimmed();
+    return latitude ? preferences_->latitude(value) : preferences_->longitude(value);
   };
   // Keep grid spacing legible and bounded for every supported zoom.
   const double target = 360.0 * 120 / map::worldSize(zoom_);

@@ -21,6 +21,9 @@ bool readXastirConfig(const QString &path, XastirConfig &config, QString *error)
     const int value = values.value(QString::fromLatin1(key)).trimmed().toInt(&ok);
     return ok && value >= minimum && value <= maximum ? value : fallback;
   };
+  result.presentation.coordinateSystem = bounded("COORDINATE_SYSTEM", 0, 0, 2);
+  result.presentation.englishUnits = bounded("DISPLAY_UNITS_ENGLISH", 0, 0, 1) != 0;
+  result.presentation.distanceBearing = bounded("DISPLAY_DIST_BEAR_STATUS", 0, 0, 1) != 0;
   result.timing.clearSeconds = bounded("DEFAULT_STATION_CLEAR", 3600, 1, 604800);
   result.timing.aircraftSeconds = bounded("DEFAULT_AIRCRAFT_CLEAR", 0, 0, 604800);
   result.timing.deadReckoningSeconds = bounded("DEAD_RECKONING_TIMEOUT", 600, 1, 2592000);

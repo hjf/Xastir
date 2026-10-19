@@ -3,6 +3,7 @@
 #include "station_model.h"
 #include "station_view.h"
 #include "timing_settings.h"
+#include "display_preferences.h"
 #include <QList>
 struct AgwpeSettings {
   QString host;
@@ -26,6 +27,7 @@ struct AprsisSettings {
   QString passcode;
 };
 struct XastirConfig {
+  PresentationSettings presentation;
   TimingSettings timing;
   int snapshotIntervalMinutes = 5;
   bool snapshotsEnabled = false;
