@@ -172,7 +172,7 @@ private slots:
     QVERIFY(mapConfigure);
     auto *background = mapConfigure->findChild<QMenu *>("PULDNMP005");
     QVERIFY(background); QCOMPARE(background->actions().size(), 12);
-    // All leaf actions share the placeholder behavior, including toggles and Exit.
+    // Unfinished leaf actions share the placeholder behavior, including toggles.
     int leaves = 0, toggles = 0;
     for (auto *action : window.findChildren<QAction *>()) {
       if (action->property("legacyMenuId").isValid()) {
@@ -193,6 +193,36 @@ private slots:
     }
     QCOMPARE(leaves, 183); QCOMPARE(toggles, 111);
     window.close();
+  }
+
+  void fileMenuConfigurationAndSave()
+  {
+    TileServer server;
+    QTemporaryDir cache;
+    ApplicationOptions options;
+    options.tiles = {server.urlTemplate(), cache.path()};
+    MainWindow window(options);
+
+    auto *configure = window.findChild<QAction *>("PULDNCF004");
+    auto *save = window.findChild<QAction *>("PULDNCF008");
+    QVERIFY(configure);
+    QVERIFY(save);
+    QVERIFY(configure->property("implemented").toBool());
+    QVERIFY(save->property("implemented").toBool());
+
+    configure->trigger();
+    auto *dialog = window.findChild<QDialog *>("interfaceControl");
+    QVERIFY(dialog);
+    QVERIFY(dialog->isVisible());
+    dialog->close();
+
+    QSettings().setValue("test/saveNow", "flushed");
+    save->trigger();
+    QCOMPARE(QSettings().value("test/saveNow").toString(), QStringLiteral("flushed"));
+    QFile savedSettings(QSettings().fileName());
+    QVERIFY(savedSettings.open(QIODevice::ReadOnly));
+    QVERIFY(savedSettings.readAll().contains("saveNow=flushed"));
+    QCOMPARE(window.statusBar()->currentMessage(), QStringLiteral("Configuration saved."));
   }
 
   void fullscreenShortcutUsesEntireWindow()
@@ -1361,10 +1391,9 @@ private slots:
     QVERIFY(mapWidget->centerCoordinate().longitude < dragStart.longitude);
     auto *exit = window.findChild<QAction *>(QStringLiteral("actionExit"));
     QVERIFY(exit);
+    QVERIFY(exit->property("implemented").toBool());
     exit->trigger();
-    auto *dialog = window.findChild<QMessageBox *>("notImplementedDialog");
-    QVERIFY(dialog); QCOMPARE(dialog->text(), QStringLiteral("Not implemented yet"));
-    QVERIFY(window.isVisible()); dialog->accept(); window.close();
+    QVERIFY(!window.isVisible());
   }
 
   void destroysVisibleWindowWithPendingDownloads()

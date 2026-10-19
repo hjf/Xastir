@@ -1,5 +1,8 @@
 # Xastir Qt map milestone
 
+See [MIGRATION.md](MIGRATION.md) for current implementation status and remaining
+work. The milestone sections below also describe earlier migration stages.
+
 A Qt 6 Widgets frontend with a shared legacy C decoding core, built with CMake. The first milestone is
 a main window, the legacy menu structure, an interactive OpenStreetMap raster map, and APRS
 station and object icons with name labels. Station state can be loaded from JSON
@@ -75,12 +78,13 @@ in `qt/legacy_menus.json` follow `create_appshell` in `src/main.c` and the Engli
 labels in `config/language-English.sys`; optional Motif build features are
 included in the scaffold.
 
-The Message menu is implemented (see below). Other leaf actions open a
-**Not implemented yet** dialog, including Exit and interface controls.
-Placeholder toggles do not change settings. Submenu entries
-open their nested menus. Map navigation and configured AGWPE startup reception
-continue independently of these placeholders. JSON snapshots remain available
-through `--stations`.
+The Message menu is implemented (see below). File-menu station configuration
+opens the Qt interface and station settings dialog, Save Config Now flushes
+the Qt settings store, and Exit closes the main window. Other unfinished leaf
+actions open a **Not implemented yet** dialog; placeholder toggles do not
+change settings. Submenu entries open their nested menus. Map navigation and
+configured AGWPE startup reception continue independently of these
+placeholders. JSON snapshots remain available through `--stations`.
 
 ## APRS station icons
 
@@ -257,7 +261,8 @@ ctest --test-dir build/qt --output-on-failure
 Tests use Qt's offscreen platform and a local HTTP fixture server. They exercise
 Web Mercator coordinates, wrapping and polar limits, downloads, persistent cache
 reuse, request limits and cancellation, error reporting, rendered pixels,
-navigation, the legacy menu structure and placeholder dialogs, shutdown, embedded APRS artwork, overlays and headings,
+navigation, the legacy menu structure and placeholder dialogs, File-menu
+configuration/save/exit actions, shutdown, embedded APRS artwork, overlays and headings,
 station validation and updates, icon pixels and labels, and world wrapping.
 Message tests cover all ten menu actions, delivery/ACK/rejection matching,
 retry timing, cancellation, ordered delivery, group handling, duplicate suppression,
@@ -730,8 +735,10 @@ updates the map: it does not deliver messages, ACK, auto-reply, transmit, or add
 records to persistent traffic history. Oversized or malformed records stop
 replay with an error. Existing stations remain in place while the log is read.
 
-The remaining File logging toggles, periodic KML snapshots, and unfinished
-Configure actions still display the explicit Not implemented yet dialog.
+File also provides TNC, Net, Message and WX traffic logging, plus periodic KML
+snapshots. These use worker threads and explicit retention/work limits; see
+[migration status](MIGRATION.md). IGate and WX Alert Logging remain unavailable,
+and unfinished Configure actions retain explicit placeholders.
 
 ## File menu: Defaults and Timing
 
@@ -757,9 +764,10 @@ DEAD_RECKONING_TIMEOUT, POSIT_RATE (60 seconds or greater), and TRAFFIC_UTF8.
 Saved Qt values take precedence; malformed timing values fall back to the
 imported/default values. Existing Qt timing defaults remain unchanged.
 
-These dialogs expose the currently supported subset. Other legacy defaults,
-ghosting/removal timers, GPS and object transmission timers, serial pacing,
-and trail timing remain explicitly marked unfinished.
+Timing also provides station removal, trail gap limits, and snapshot/log
+directories. Removal and trail expiry use the shared C database, independently
+of persistent history. Object/item repeats are configured through Station →
+Manage Own Objects/Items. Ghosting, GPS and serial pacing remain unfinished.
 
 ## Periodic PNG snapshots
 
@@ -781,5 +789,6 @@ Write failures disable the toggle and report the destination and error in the
 status bar. Correct the directory and enable PNG Snapshots again to retry.
 Errors from a superseded directory do not disable a new configuration. Legacy
 SNAPSHOTS_ENABLED and SNAPSHOT_INTERVAL values are imported, with saved Qt
-settings taking precedence. KML snapshots and geographic sidecars remain
+settings taking precedence. KML snapshots share the directory and interval,
+exporting station data even while the map is hidden. Geographic sidecars remain
 unfinished; PNG snapshots capture the current viewport only.

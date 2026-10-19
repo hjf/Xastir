@@ -28,6 +28,7 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QStatusBar>
+#include <QSettings>
 #include <QAction>
 #include <QMenuBar>
 #include <QMenu>
@@ -147,6 +148,30 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   messageUi_->setClients(clients_,aprsis_);
   new StationDetails(this, stations_, mapWidget_, navigator, messageUi_, options.config.callsign);
   auto *interfaces=new InterfaceControl(this,options.config);
+  if (auto *configureStation = findChild<QAction *>("PULDNCF004")) {
+    disconnect(configureStation, nullptr, this, nullptr);
+    configureStation->setProperty("implemented", true);
+    connect(configureStation, &QAction::triggered, interfaces, &InterfaceControl::open);
+  }
+  if (auto *saveConfig = findChild<QAction *>("PULDNCF008")) {
+    disconnect(saveConfig, nullptr, this, nullptr);
+    saveConfig->setProperty("implemented", true);
+    connect(saveConfig, &QAction::triggered, this, [this] {
+      QSettings settings;
+      settings.sync();
+      if (settings.status() != QSettings::NoError) {
+        QMessageBox::warning(this, tr("Save configuration"),
+                             tr("Could not save configuration."));
+        return;
+      }
+      statusBar()->showMessage(tr("Configuration saved."), 5000);
+    });
+  }
+  if (auto *exit = findChild<QAction *>("actionExit")) {
+    disconnect(exit, nullptr, this, nullptr);
+    exit->setProperty("implemented", true);
+    connect(exit, &QAction::triggered, this, [this] { close(); });
+  }
   connect(interfaces,&InterfaceControl::configurationChanged,this,[this, objects](const XastirConfig &config) {
     if(config.callsign!=messages_->callsign()) return; // Identity changes take effect on restart.
     localStation_=config.localStation; if(localStation_) {localStation_->local=true;stations_->upsert(*localStation_);}

@@ -22,6 +22,15 @@ application dependencies. Qt owns presentation, sockets and storage adapters.
 Serial support remains outside this migration's current scope; AGWPE supplies
 radio/TNC integration.
 
+## File menu: station configuration, save and exit
+
+File → Configure → Station opens the same station/interface settings dialog as
+Interface → Interface Control. Save Config Now flushes the applied Qt settings
+to disk and reports write failures; unapplied dialog edits still require their
+own Save/OK action. Exit closes the main window through the normal Qt shutdown
+path. Offscreen checks exercise all three actions, including persisted settings
+bytes and closing the visible window.
+
 ## Corrections from this review
 
 - The Qt station projection now reads the resulting C record after updates.
