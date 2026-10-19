@@ -145,7 +145,7 @@ traversal. Offscreen tests exercise all ten actions, actual APRS position/status
 weather/object/item packets, filtering, selection retention, details/navigation,
 updates and kills, replacement during a batch scan, teardown with a selected row,
 weather units, uptime, and
-ALOHA statistics with Internet-only records excluded. Bulletins, CAD polygons,
+ALOHA statistics with Internet-only records excluded. CAD polygons,
 weather alerts and GPS Status still require their unfinished backends.
 
 ## Coordinate and unit preferences
@@ -178,6 +178,36 @@ fall back to imported/default values. Unsupported legacy coordinate systems
 fall back to decimal degrees. These controls affect presentation only.
 Linux tests cover conversions, hemispheres and boundaries, apply/cancel/restart,
 invalid settings, live unit/header updates, retained raw values and cursor status.
+
+## Bulletin browser
+
+View → Bulletins now shows general/group bulletins and announcements, with
+sender/destination/text filtering and sortable columns. It receives live AGWPE
+and APRS-IS traffic, including third-party packets within the existing depth
+limit, and restores archived bulletin records without transmitting.
+
+The shared message core recognizes `BLN` destinations with a numeric bulletin
+slot or alphabetic announcement slot. It uses the original sender/destination
+storage key and `msg_data_add` update rule: changed text replaces the line;
+identical repeats preserve its timestamp until more than eight hours have
+elapsed. Out-of-order older reports do not overwrite newer state. Empty lines
+are accepted, and ACK-like bulletin text is treated as text. Bulletin reception
+does not enter ACK, retry, auto-reply, private-message popup, or peer-route state.
+
+The browser refreshes at most twice per second from the bounded 2,000-message
+working set. Bulletin state participates in the permanent message archive,
+separately from seven-day traffic retention. Original packet bytes remain in
+the permanent message-packet archive. Restart preserves bulletin timestamps;
+older archive records without a bulletin marker are recognized by destination.
+Multiple archived versions of a line consolidate in the shared C store.
+
+Linux fixtures cover actual bulletin/group/announcement formats, malformed and
+empty bodies, duplicate/update timing, third-party reception, passive and
+bidirectional Internet paths, and restoration with no delivery side effects.
+Offscreen tests cover browser filtering, updates, selection and reopen behavior.
+Distance filtering, automatic bulletin popups, bulletin transmission and
+NWS/BOM alert processing remain unfinished. File log replay still updates station
+state only and does not inject traffic into the message archive.
 
 ## Remaining migration work
 

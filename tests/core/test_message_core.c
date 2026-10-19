@@ -19,8 +19,65 @@ static const Message *by_key(XastirMessages *core, uint64_t key)
   for (long i = 0; i < store->count; ++i) if (store->data[i].active == RECORD_ACTIVE && store->data[i].key == key) return &store->data[i];
   return NULL;
 }
+static int bulletin_tests(void)
+{
+  XastirDecodedMessage decoded;
+  CHECK(xastir_decode_message(":BLN1     :Road closed", &decoded) && decoded.bulletin == 1);
+  CHECK(xastir_decode_message(":BLN2GROUP:Group bulletin", &decoded) && decoded.bulletin == 1);
+  CHECK(xastir_decode_message(":BLNA     :Announcement", &decoded) && decoded.bulletin == 2);
+  CHECK(xastir_decode_message(":BLN1     :ackA1", &decoded) && !decoded.kind && !strcmp(decoded.text, "ackA1"));
+  CHECK(xastir_decode_message(":BLN1     :AA:weather}A1", &decoded) && !strcmp(decoded.text, "AA:weather}A1"));
+  CHECK(xastir_decode_message(":BLN1     :", &decoded) && !decoded.text[0]);
+  CHECK(!xastir_decode_message(":LOCAL    :", &decoded));
+  CHECK(!xastir_message_bulletin_kind("BLN"));
+  CHECK(!xastir_message_bulletin_kind("BLN-TEST"));
+  CHECK(!xastir_decode_message(":BLN1     :Bad|text", &decoded));
+  CHECK(!xastir_decode_message(":BLN1     :Bad~text", &decoded));
+  char long_message[100]; snprintf(long_message, sizeof(long_message), ":BLN1     :%068d", 0);
+  CHECK(!xastir_decode_message(long_message, &decoded));
+  XastirMessages *core = xastir_messages_create("BLN1"); CHECK(core);
+  struct Fixture fixture = {0}; fixture.online = 1;
+  xastir_messages_set_callbacks(core, &fixture, tx, incoming);
+  CHECK(xastir_messages_set_auto_text(core, "Away")); xastir_messages_set_auto(core, 1);
+  CHECK(xastir_messages_add_group(core, "BLN1"));
+  xastir_messages_receive(core, "REMOTE>APRS::BLN1     :Road closed{A1}", 0, 1000);
+  CHECK(fixture.sent == 0 && fixture.incoming == 0 && xastir_messages_auto(core));
+  const Message *m = by_key(core, 1);
+  CHECK(m && m->type == MESSAGE_BULLETIN && m->group && !m->pending && !m->retryable && !m->seq[0]);
+  CHECK(m->timestamp_ms == 1000 && !strcmp(m->message_line, "Road closed"));
+  xastir_messages_receive(core, "GATE>APRS:}REMOTE>APRS::BLN1     :Road closed", 256, 2000);
+  CHECK(by_key(core, 1)->timestamp_ms == 1000 && by_key(core, 1)->device == 256);
+  CHECK(xastir_messages_history(core)->count == 1);
+  xastir_messages_receive(core, "REMOTE>APRS::BLN1     :Road open", 0, 3000);
+  CHECK(by_key(core, 1)->timestamp_ms == 3000 && !strcmp(by_key(core, 1)->message_line, "Road open"));
+  xastir_messages_receive(core, "REMOTE>APRS::BLN1     :Out of order", 0, 2000);
+  CHECK(!strcmp(by_key(core, 1)->message_line, "Road open"));
+  xastir_messages_receive(core, "REMOTE>APRS::BLN1     :Road open", 0, 3000 + 8 * 3600000);
+  CHECK(by_key(core, 1)->timestamp_ms == 3000);
+  xastir_messages_receive(core, "REMOTE>APRS::BLN1     :Road open", 0, 3001 + 8 * 3600000);
+  CHECK(by_key(core, 1)->timestamp_ms == 3001 + 8 * 3600000);
+  xastir_messages_receive(core, "OTHER>APRS::BLN1     :Other sender", 0, 4000);
+  xastir_messages_receive(core, "REMOTE>APRS::BLN2     :Other line", 0, 4000);
+  xastir_messages_receive(core, "REMOTE>APRS::BLNA     :Announcement", 0, 4000);
+  CHECK(xastir_messages_history(core)->count == 4);
+  Message saved = *by_key(core, 1);
+  XastirMessages *restored = xastir_messages_create("LOCAL"); CHECK(restored);
+  xastir_messages_set_callbacks(restored, &fixture, tx, incoming);
+  saved.pending = saved.retryable = 1;
+  CHECK(xastir_messages_restore(restored, &saved));
+  CHECK(!by_key(restored, 1)->pending && !by_key(restored, 1)->retryable);
+  saved.key = 9; ++saved.timestamp_ms; strcpy(saved.message_line, "Restored latest");
+  CHECK(xastir_messages_restore(restored, &saved));
+  CHECK(xastir_messages_history(restored)->count == 1 && xastir_messages_next_key(restored) == 10);
+  CHECK(!strcmp(by_key(restored, 1)->message_line, "Restored latest"));
+  xastir_messages_process(core, 999999999); xastir_messages_process(restored, 999999999);
+  CHECK(fixture.sent == 0 && fixture.incoming == 0);
+  xastir_messages_destroy(core); xastir_messages_destroy(restored);
+  return 0;
+}
 int main(void)
 {
+  CHECK(bulletin_tests() == 0);
   XastirDecodedMessage decoded;
   CHECK(xastir_decode_message(":LOCAL    :test{A1}B2", &decoded));
   CHECK(!strcmp(decoded.id, "A1") && !strcmp(decoded.reply_id, "B2") && decoded.reply_capable);

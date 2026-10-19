@@ -142,18 +142,31 @@ int xastir_message_valid_path(const char *path)
 }
 /* The header / last-{ / Reply-ACK separation follows decode_message in db.c,
  * with length validation before copies and no calls to dialogs or igating. */
+int xastir_message_bulletin_kind(const char *recipient)
+{
+  if (!xastir_message_valid_recipient(recipient) || strlen(recipient) < 4 || strncmp(recipient, "BLN", 3)) return 0;
+  return recipient[3] >= 'A' && recipient[3] <= 'Z' ? 2 : recipient[3] >= '0' && recipient[3] <= '9' ? 1 : 0;
+}
+static int bulletin_valid_text(const char *text)
+{
+  if (!text || strlen(text) > 67) return 0;
+  for (const unsigned char *p = (const unsigned char *)text; *p; ++p)
+    if (*p < 32 || *p > 126 || *p == '|' || *p == '~' || *p == '{') return 0;
+  return 1;
+}
 int xastir_decode_message(const char *information, XastirDecodedMessage *out)
 {
   if (!information || !out) return 0;
   size_t n = strlen(information);
-  if (n < 12 || n > 127 || information[0] != ':' || information[10] != ':') return 0;
+  if (n < 11 || n > 127 || information[0] != ':' || information[10] != ':') return 0;
   memset(out, 0, sizeof(*out));
   memcpy(out->recipient, information+1, 9); normalize(out->recipient);
   if (!xastir_message_valid_recipient(out->recipient)) return 0;
+  out->bulletin = xastir_message_bulletin_kind(out->recipient);
   char body[117]; copy(body, sizeof(body), information+11);
   n = strlen(body);
   while (n && (body[n-1] == '\r' || body[n-1] == '\n')) body[--n] = 0;
-  if (!strncmp(body, "ack", 3) || !strncmp(body, "rej", 3)) {
+  if (!out->bulletin && (!strncmp(body, "ack", 3) || !strncmp(body, "rej", 3))) {
     char *id = body+3, *reply = strchr(id, '}');
     if (reply) {
       *reply++ = 0;
@@ -183,13 +196,13 @@ int xastir_decode_message(const char *information, XastirDecodedMessage *out)
     if (!valid_id(id)) return 0;
     copy(out->id, sizeof(out->id), id);
     *marker = 0;
-  } else if (!strncmp(body, "AA:", 3)) {
+  } else if (!out->bulletin && !strncmp(body, "AA:", 3)) {
     char *reply = strrchr(body, '}');
     if (reply && valid_id(reply+1)) {
       copy(out->reply_id, sizeof(out->reply_id), reply+1); *reply = 0;
     }
   }
-  if (!xastir_message_valid_text(body)) return 0;
+  if (!(out->bulletin ? bulletin_valid_text(body) : xastir_message_valid_text(body))) return 0;
   copy(out->text, sizeof(out->text), body);
   return 1;
 }
@@ -271,6 +284,39 @@ static uint64_t append(XastirMessages *c, Message *m)
   trim(c); ++c->revision;
   return m->key;
 }
+static Message *bulletin_record(XastirMessages *c, const char *sender, const char *recipient)
+{
+  for (long i = 0; i < c->history.count; ++i) {
+    Message *m = &c->history.data[i];
+    if (m->active == RECORD_ACTIVE && m->type == MESSAGE_BULLETIN && !m->outgoing
+        && !strcmp(m->from_call_sign, sender) && !strcmp(m->call_sign, recipient)) return m;
+  }
+  return NULL;
+}
+int xastir_messages_store_bulletin(XastirMessages *c, const char *sender, const char *recipient,
+                                  const char *text, int device, int64_t now)
+{
+  if (!c || !xastir_message_valid_recipient(sender) || !xastir_message_bulletin_kind(recipient)
+      || !bulletin_valid_text(text) || now < 0) return 0;
+  Message *existing = bulletin_record(c, sender, recipient);
+  if (existing) {
+    /* msg_data_add in db.c keeps duplicate timestamps unless the text changed
+     * or the previous bulletin is more than eight hours old. */
+    if (now < existing->timestamp_ms) return 1;
+    const int different = strcmp(existing->message_line, text);
+    const int fresh = different || now - existing->timestamp_ms > 8 * 3600000;
+    if (!fresh && existing->device == device) return 1;
+    if (different) copy(existing->message_line, sizeof(existing->message_line), text);
+    if (fresh) { existing->timestamp_ms = now; existing->sec_heard = (time_t)(now / 1000); }
+    existing->device = device; existing->data_via = device == 256 ? 'I' : 'T';
+    ++c->revision; return 1;
+  }
+  Message m = {0}; m.type = MESSAGE_BULLETIN; m.group = 1;
+  m.timestamp_ms = now; m.device = device; m.data_via = device == 256 ? 'I' : 'T'; m.status = XMSG_HEARD;
+  copy(m.from_call_sign, sizeof(m.from_call_sign), sender); copy(m.call_sign, sizeof(m.call_sign), recipient);
+  copy(m.message_line, sizeof(m.message_line), text);
+  return append(c, &m) != 0;
+}
 int xastir_messages_restore(XastirMessages *c, const Message *saved)
 {
   if (!c || !saved || !saved->key || saved->key >= INT64_MAX ||
@@ -284,6 +330,18 @@ int xastir_messages_restore(XastirMessages *c, const Message *saved)
   m.seq[sizeof(m.seq)-1] = 0;
   m.path[sizeof(m.path)-1] = 0;
   m.error[sizeof(m.error)-1] = 0;
+  if (c->next_key <= m.key) c->next_key = m.key + 1;
+  if (m.type == MESSAGE_BULLETIN && !m.outgoing) {
+    if (!xastir_message_bulletin_kind(m.call_sign) || !xastir_message_valid_recipient(m.from_call_sign)
+        || !bulletin_valid_text(m.message_line)) return 0;
+    m.pending = m.retryable = m.tries = 0; m.next_retry_ms = 0;
+    m.group = 1; m.status = XMSG_HEARD; m.seq[0] = m.path[0] = m.error[0] = 0;
+    Message *existing = bulletin_record(c, m.from_call_sign, m.call_sign);
+    if (existing) {
+      if (m.timestamp_ms >= existing->timestamp_ms) { const uint64_t key = existing->key; *existing = m; existing->key = key; ++c->revision; }
+      return 1;
+    }
+  }
   if (m.pending) {
     m.status = XMSG_INTERRUPTED;
     m.retryable = m.outgoing;
@@ -291,7 +349,7 @@ int xastir_messages_restore(XastirMessages *c, const Message *saved)
   m.pending = 0;
   m.next_retry_ms = 0;
   if (!xastir_msg_input_database(&c->history, &m)) return 0;
-  if (!m.outgoing && m.device >= 0 && m.device <= 256) {
+  if (!m.outgoing && m.type != MESSAGE_BULLETIN && m.device >= 0 && m.device <= 256) {
     struct Seen *seen = &c->seen[c->seen_next++ % CACHE_LIMIT];
     memset(seen, 0, sizeof(*seen));
     seen->used = 1; seen->time = m.timestamp_ms;
@@ -548,6 +606,7 @@ void xastir_messages_receive(XastirMessages *c, const char *original, int device
   if (!xastir_message_valid_recipient(sender)) return;
   XastirDecodedMessage decoded;
   if (!xastir_decode_message(colon+1, &decoded)) return;
+  if (decoded.bulletin) { xastir_messages_store_bulletin(c, sender, decoded.recipient, decoded.text, device, now); return; }
   const int to_me = c->callsign[0] && !strcmp(decoded.recipient, c->callsign);
   if (decoded.kind) {
     if (to_me) acknowledge(c, sender, decoded.id, decoded.kind == 2);

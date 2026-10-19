@@ -15,6 +15,7 @@ add_library(xastir_qt_ui STATIC
   legacy_menus.cpp legacy_menus.h
   message_service.cpp message_service.h
   message_ui.cpp message_ui.h
+  bulletin_ui.cpp bulletin_ui.h
   packet_monitor.cpp packet_monitor.h
   station_navigator.cpp station_navigator.h
   station_menu.cpp station_menu.h
@@ -69,6 +70,14 @@ install(TARGETS xastir-qt RUNTIME DESTINATION bin BUNDLE DESTINATION .)
 
 if(BUILD_TESTING)
   find_package(Qt6 6.4 REQUIRED COMPONENTS Test)
+  qt_add_executable(test_bulletins tests/test_bulletins.cpp)
+  target_link_libraries(test_bulletins PRIVATE xastir_qt_ui Qt6::Test)
+  set_target_properties(test_bulletins PROPERTIES WIN32_EXECUTABLE FALSE)
+  if(TARGET Qt6::QOffscreenIntegrationPlugin)
+    qt_import_plugins(test_bulletins INCLUDE Qt6::QOffscreenIntegrationPlugin)
+  endif()
+  add_test(NAME bulletins COMMAND test_bulletins)
+  set_tests_properties(bulletins PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
   qt_add_executable(test_display_preferences tests/test_display_preferences.cpp)
   target_link_libraries(test_display_preferences PRIVATE xastir_qt_ui Qt6::Test)
   set_target_properties(test_display_preferences PROPERTIES WIN32_EXECUTABLE FALSE)

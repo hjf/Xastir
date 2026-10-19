@@ -57,8 +57,9 @@ void MessageService::sync()
     row.recipient = QString::fromLatin1(m.call_sign); row.text = QString::fromLatin1(m.message_line);
     row.id = QString::fromLatin1(m.seq); row.path = QString::fromUtf8(m.path);
     row.outgoing = m.outgoing; row.group = m.group; row.pending = m.pending; row.retryable = m.retryable;
+    row.bulletin = m.type == MESSAGE_BULLETIN ? xastir_message_bulletin_kind(m.call_sign) : 0;
     row.device = m.device; row.attempts = m.tries; row.timestamp = m.timestamp_ms; row.nextRetry = m.next_retry_ms;
-    row.status = statusText(m.status, QString::fromUtf8(m.error));
+    row.status = row.bulletin ? (row.bulletin == 2 ? tr("Announcement") : tr("Bulletin")) : statusText(m.status, QString::fromUtf8(m.error));
     messages_.append(row);
   }
   std::sort(messages_.begin(), messages_.end(), [](const AprsMessage &a, const AprsMessage &b) { return a.key < b.key; });
@@ -139,6 +140,7 @@ QJsonArray MessageService::archiveRecords() const
       {"text",QString::fromLatin1(m.message_line)}, {"id",QString::fromLatin1(m.seq)},
       {"path",QString::fromUtf8(m.path)}, {"error",QString::fromUtf8(m.error)},
       {"outgoing",bool(m.outgoing)}, {"group",bool(m.group)}, {"pending",bool(m.pending)},
+      {"bulletin",m.type == MESSAGE_BULLETIN},
       {"retryable",bool(m.retryable)}, {"device",m.device}, {"status",m.status}, {"attempts",m.tries},
       {"timestamp",QString::number(m.timestamp_ms)}});
   }
@@ -162,6 +164,7 @@ void MessageService::restoreArchive(const QJsonArray &records, const QString &co
     field(m.message_line,sizeof(m.message_line),"text");
     field(m.seq,sizeof(m.seq),"id");field(m.path,sizeof(m.path),"path",false);field(m.error,sizeof(m.error),"error",false);
     m.outgoing=o["outgoing"].toBool();m.group=o["group"].toBool();m.pending=o["pending"].toBool();
+    m.type = !m.outgoing && (o["bulletin"].toBool() || xastir_message_bulletin_kind(m.call_sign)) ? MESSAGE_BULLETIN : MESSAGE_MESSAGE;
     m.retryable=o["retryable"].toBool();m.device=o["device"].toInt(-1);m.status=o["status"].toInt(-1);
     m.tries=o["attempts"].toInt();m.timestamp_ms=o["timestamp"].toString().toLongLong();
     m.sec_heard=m.timestamp_ms/1000;
@@ -183,6 +186,10 @@ void MessageService::receiveInternetPacket(const QByteArray &original, qint64 ti
     XastirDecodedMessage decoded{};
     if(!xastir_decode_message(info.constData(),&decoded) || decoded.kind)return;
     const auto sender=QString::fromLatin1(packet.left(arrow)).trimmed().toUpper();
+    if (decoded.bulletin) {
+      xastir_messages_store_bulletin(core_.get(), sender.toLatin1().constData(), decoded.recipient, decoded.text, 256, timestamp);
+      sync(); return;
+    }
     const quint64 next=nextMessageKey();
     for(const auto &m:messages_) {
       if(m.sender==sender && m.recipient==QString::fromLatin1(decoded.recipient) &&

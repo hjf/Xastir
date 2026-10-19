@@ -31,7 +31,9 @@ typedef struct {
   char recipient[10], text[68], id[6], reply_id[6], original_id[13];
   int kind; /* 0 text, 1 ACK, 2 REJ */
   int reply_capable;
+  int bulletin; /* 0 ordinary, 1 bulletin, 2 announcement */
 } XastirDecodedMessage;
+int xastir_message_bulletin_kind(const char *recipient);
 int xastir_decode_message(const char *information, XastirDecodedMessage *decoded);
 int xastir_bump_message_counter(char *counter);
 int xastir_message_valid_text(const char *text);
@@ -56,6 +58,10 @@ uint64_t xastir_messages_revision(const XastirMessages *core);
 int xastir_messages_send(XastirMessages *, const char *to, const char *text, int group, int device, const char *path, int64_t now, char *error, size_t capacity);
 int xastir_messages_query(XastirMessages *, const char *query, int device, int64_t now, char *error, size_t capacity);
 void xastir_messages_receive(XastirMessages *, const char *packet, int device, int64_t now);
+/* Passive bulletin storage uses the original sender/BLN-address key and eight
+ * hour duplicate timestamp policy. Never touches delivery or peer-route state. */
+int xastir_messages_store_bulletin(XastirMessages *, const char *sender, const char *recipient,
+                                  const char *text, int device, int64_t now);
 void xastir_messages_process(XastirMessages *, int64_t now);
 void xastir_messages_acknowledge(XastirMessages *, const char *from, const char *to, const char *seq, int rejected);
 void xastir_messages_cancel(XastirMessages *, uint64_t key);

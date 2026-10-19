@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "message_ui.h"
 #include "aprsis_client.h"
+#include "bulletin_ui.h"
 #include <QAction>
 #include <QCheckBox>
 #include <QComboBox>
@@ -71,6 +72,7 @@ MessageUi::MessageUi(QMainWindow *window, MessageService *service,
                      QList<AgwpeClient *> clients, const QString &legacyAutoReply)
   : QObject(window), window_(window), service_(service)
 {
+  new BulletinUi(window_, service_);
   for (auto *client : clients) clients_.append(client);
   service_->setAutoReplyText(settings_.value("messages/autoReplyText", legacyAutoReply).toString());
   service_->setAutoReply(false); // APRS auto-answer defaults off on startup.

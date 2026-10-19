@@ -14,6 +14,7 @@ struct AprsMessage {
   QString status;
   bool outgoing = false, group = false, pending = false, retryable = false;
   int device = -1, attempts = 0;
+  int bulletin = 0;
   qint64 timestamp = 0, nextRetry = 0;
 };
 
