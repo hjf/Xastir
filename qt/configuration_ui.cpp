@@ -4,6 +4,7 @@
 #include "map_widget.h"
 #include "packet_monitor.h"
 #include "snapshot_control.h"
+#include "traffic_log.h"
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -24,8 +25,8 @@
 #include <QVBoxLayout>
 
 ConfigurationUi::ConfigurationUi(QMainWindow *window, MapWidget *map, PacketMonitor *monitor,
-                                 BeaconControl *beacons, SnapshotControl *snapshots, const XastirConfig &config)
-  : QObject(window), window_(window), map_(map), monitor_(monitor), beacons_(beacons), snapshots_(snapshots)
+                                 BeaconControl *beacons, SnapshotControl *snapshots, TrafficLogControl *logs, const XastirConfig &config)
+  : QObject(window), window_(window), map_(map), monitor_(monitor), beacons_(beacons), snapshots_(snapshots), logs_(logs)
 {
   auto *preferences = map_->preferences();
   preferences->restore(config.presentation);
@@ -213,14 +214,23 @@ void ConfigurationUi::timing()
     const auto path = QFileDialog::getExistingDirectory(dialog, tr("Snapshot directory"), directory->text());
     if (!path.isEmpty()) directory->setText(path);
   });
+  auto *logDirectory = new QLineEdit(logs_->directory(), dialog);
+  logDirectory->setObjectName("timingLogDirectory");
+  auto *logBrowse = new QPushButton(tr("Browse…"), dialog);
+  auto *logRow = new QHBoxLayout; logRow->addWidget(logDirectory); logRow->addWidget(logBrowse);
+  form->addRow(tr("Traffic log directory"), logRow);
+  connect(logBrowse, &QPushButton::clicked, dialog, [dialog, logDirectory] {
+    const auto path = QFileDialog::getExistingDirectory(dialog, tr("Traffic log directory"), logDirectory->text());
+    if (!path.isEmpty()) logDirectory->setText(path);
+  });
   auto *note = new QLabel(tr("Clear time hides stations and expires trail points. Display Old Data bypasses hiding, but not removal or trail expiry. Aircraft use the legacy five-times-clear cutoff.\n\nRemoval deletes received station state from memory; your station and owned objects/items remain. Cleanup runs every minute. Traffic history and messages are retained independently.\n\nTrail gap limits apply to new points. Zero permits only points with the same time or coordinate; it does not disable the limit.\n\nChanging the beacon interval waits one full interval; periodic sending and TX must be enabled separately in Position Beacon and Interface Control.\n\nGhosting, GPS, object transmission, and serial pacing are not implemented here yet. Enable PNG or KML Snapshots in the File menu to refresh snapshot.png or snapshot.kml. KML uses station data even when the map is hidden."), dialog);
   note->setWordWrap(true); form->addRow(note);
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
   layout->addWidget(buttons);
   connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
-  connect(buttons, &QDialogButtonBox::accepted, this, [this, dialog, clear, remove, aircraft, dr, beacon, segmentTime, segmentDistance, snapshotInterval, directory] {
-    if (directory->text().trimmed().isEmpty()) {
-      QMessageBox::warning(dialog, tr("Snapshots"), tr("Choose a snapshot directory."));
+  connect(buttons, &QDialogButtonBox::accepted, this, [this, dialog, clear, remove, aircraft, dr, beacon, segmentTime, segmentDistance, snapshotInterval, directory, logDirectory] {
+    if (directory->text().trimmed().isEmpty() || logDirectory->text().trimmed().isEmpty()) {
+      QMessageBox::warning(dialog, tr("Directories"), tr("Choose snapshot and traffic log directories."));
       return;
     }
     QSettings settings;
@@ -233,6 +243,7 @@ void ConfigurationUi::timing()
     settings.setValue("beacon/interval", beacon->value());
     settings.setValue("snapshots/directory", directory->text().trimmed());
     settings.setValue("snapshots/intervalMinutes", snapshotInterval->value());
+    settings.setValue("logging/directory", logDirectory->text().trimmed());
     if (!save()) return;
     auto value = map_->timing();
     value.clearSeconds = clear->value(); value.aircraftSeconds = aircraft->value();
@@ -242,6 +253,7 @@ void ConfigurationUi::timing()
     map_->setTiming(value);
     beacons_->setIntervalSeconds(beacon->value());
     snapshots_->configure(directory->text(), snapshotInterval->value());
+    logs_->configure(logDirectory->text());
     window_->statusBar()->showMessage(tr("Timing saved and applied."), 5000);
     dialog->accept();
   });

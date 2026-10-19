@@ -9,12 +9,13 @@ class MapWidget;
 class PacketMonitor;
 class BeaconControl;
 class SnapshotControl;
+class TrafficLogControl;
 
 class ConfigurationUi : public QObject
 {
   Q_OBJECT
 public:
-  ConfigurationUi(QMainWindow *, MapWidget *, PacketMonitor *, BeaconControl *, SnapshotControl *, const XastirConfig &);
+  ConfigurationUi(QMainWindow *, MapWidget *, PacketMonitor *, BeaconControl *, SnapshotControl *, TrafficLogControl *, const XastirConfig &);
 private:
   void defaults();
   void timing();
@@ -26,5 +27,6 @@ private:
   PacketMonitor *monitor_;
   BeaconControl *beacons_;
   SnapshotControl *snapshots_;
+  TrafficLogControl *logs_;
   QPointer<QDialog> defaults_, timing_, coordinates_;
 };

@@ -590,22 +590,27 @@ int xastir_messages_add_group(XastirMessages *c, const char *name)
   if (c->group_count == GROUP_LIMIT) return 0;
   copy(c->groups[c->group_count++], 10, name); return 1;
 }
-void xastir_messages_receive(XastirMessages *c, const char *original, int device, int64_t now)
+int xastir_decode_message_packet(const char *original, char *sender, size_t capacity, XastirDecodedMessage *decoded)
 {
   const char *packet = original, *arrow = NULL, *colon = NULL;
-  if (!packet || strlen(packet) > 4096) return;
+  if (!packet || !sender || !decoded || capacity < 10 || strlen(packet) > 4096
+      || strchr(packet, '\r') || strchr(packet, '\n')) return 0;
   for (int depth = 0; depth <= 4; ++depth) {
-    arrow = strchr(packet, '>'); if (!arrow || arrow == packet) return;
-    colon = strchr(arrow+1, ':'); if (!colon || colon == arrow+1) return;
+    arrow = strchr(packet, '>'); if (!arrow || arrow == packet) return 0;
+    colon = strchr(arrow+1, ':'); if (!colon || colon == arrow+1) return 0;
     if (colon[1] != '}') break;
-    if (depth == 4) return;
+    if (depth == 4) return 0;
     packet = colon+2;
   }
-  if (arrow - packet > 9) return;
-  char sender[10] = {0}; memcpy(sender, packet, (size_t)(arrow-packet)); normalize(sender);
-  if (!xastir_message_valid_recipient(sender)) return;
-  XastirDecodedMessage decoded;
-  if (!xastir_decode_message(colon+1, &decoded)) return;
+  if (arrow - packet > 9) return 0;
+  memset(sender, 0, 10); memcpy(sender, packet, (size_t)(arrow-packet)); normalize(sender);
+  if (!xastir_message_valid_recipient(sender)) return 0;
+  return xastir_decode_message(colon+1, decoded);
+}
+void xastir_messages_receive(XastirMessages *c, const char *original, int device, int64_t now)
+{
+  char sender[10]; XastirDecodedMessage decoded;
+  if (!xastir_decode_message_packet(original, sender, sizeof(sender), &decoded)) return;
   if (decoded.bulletin) { xastir_messages_store_bulletin(c, sender, decoded.recipient, decoded.text, device, now); return; }
   const int to_me = c->callsign[0] && !strcmp(decoded.recipient, c->callsign);
   if (decoded.kind) {

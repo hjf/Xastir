@@ -32,24 +32,12 @@ QByteArray bytes(sqlite3_stmt *s, int n)
   return QByteArray(static_cast<const char *>(sqlite3_column_blob(s, n)),
                     sqlite3_column_bytes(s, n));
 }
-bool messagePacket(QByteArray packet)
+bool messagePacket(const QByteArray &packet)
 {
-  for (int depth = 0; depth <= 4; ++depth)
-  {
-    int arrow = packet.indexOf('>'), colon = packet.indexOf(':', arrow + 1);
-    if (arrow <= 0 || colon <= arrow + 1)
-      return false;
-    auto info = packet.mid(colon + 1);
-    if (info.startsWith('}'))
-    {
-      packet = info.mid(1);
-      continue;
-    }
-    XastirDecodedMessage decoded{};
-    return !info.contains('\0') && xastir_decode_message(info.constData(), &decoded);
-  }
-  return false;
+  char sender[10]; XastirDecodedMessage decoded{};
+  return !packet.contains('\0') && xastir_decode_message_packet(packet.constData(), sender, sizeof(sender), &decoded);
 }
+
 } // namespace
 QString HistoryStore::defaultPath()
 {

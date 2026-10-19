@@ -77,6 +77,15 @@ static int bulletin_tests(void)
 }
 int main(void)
 {
+  char envelope_sender[10]; XastirDecodedMessage envelope;
+  CHECK(xastir_decode_message_packet("GATE>APRS:}remote>APRS::LOCAL    :hello{01", envelope_sender, sizeof(envelope_sender), &envelope));
+  CHECK(!strcmp(envelope_sender, "REMOTE") && !strcmp(envelope.text, "hello"));
+  CHECK(xastir_decode_message_packet("REMOTE>APRS::LOCAL    :ack01", envelope_sender, sizeof(envelope_sender), &envelope) && envelope.kind == 1);
+  CHECK(!xastir_decode_message_packet("TOOLONGCALL>APRS::LOCAL    :hello", envelope_sender, sizeof(envelope_sender), &envelope));
+  CHECK(!xastir_decode_message_packet("REMOTE>APRS::LOCAL    :hello\n", envelope_sender, sizeof(envelope_sender), &envelope));
+  CHECK(!xastir_decode_message_packet("REMOTE>APRS::LOCAL    :hello", envelope_sender, 9, &envelope));
+  CHECK(!xastir_decode_message_packet("G>APRS:}G>APRS:}G>APRS:}G>APRS:}G>APRS:}R>APRS::LOCAL    :hello", envelope_sender, sizeof(envelope_sender), &envelope));
+
   CHECK(bulletin_tests() == 0);
   XastirDecodedMessage decoded;
   CHECK(xastir_decode_message(":LOCAL    :test{A1}B2", &decoded));

@@ -12,6 +12,7 @@
 #include "message_service.h"
 #include "message_ui.h"
 #include "packet_monitor.h"
+#include "traffic_log.h"
 #include "station_navigator.h"
 #include "station_menu.h"
 #include "station_details.h"
@@ -88,6 +89,8 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
     following->setText(name.isEmpty() ? QString() : tr("Following %1").arg(name));
   });
   auto *monitor = new PacketMonitor(this); monitor_=monitor;
+  auto *logs = new TrafficLogControl(this, options.config);
+  connect(monitor, &PacketMonitor::packetObserved, logs, &TrafficLogControl::observe);
   connect(monitor, &PacketMonitor::replayPacket, stations_, [this](const QByteArray &packet, qint64 timestamp) {
     stations_->applyPacket(packet,'F', timestamp / 1000);
   });
@@ -133,7 +136,7 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
     new HistoryUi(this,history_,options.config.callsign);
   }
   beacons_=new BeaconControl(this,options.config,[this]{return clients_;});
-  new ConfigurationUi(this, mapWidget_, monitor_, beacons_, snapshots, options.config);
+  new ConfigurationUi(this, mapWidget_, monitor_, beacons_, snapshots, logs, options.config);
   transmitDisabled_=beacons_->transmitDisabled();
   connect(beacons_,&BeaconControl::transmitDisabledChanged,this,[this](bool disabled){transmitDisabled_=disabled;});
   connect(beacons_,&BeaconControl::statusChanged,statusBar(),[this](const QString &message){statusBar()->showMessage(message,10000);});
@@ -250,6 +253,7 @@ void MainWindow::configureAgwpe(const XastirConfig &config) {
     connect(aprsis_,&AprsisClient::statusChanged,aprsisLabel_,&QLabel::setText);
     connect(aprsis_,&AprsisClient::packetReceived,monitor_,[this](const QByteArray &packet){monitor_->receive(packet,256);if(history_)history_->recordPacket(packet,256);messages_->receiveInternetPacket(packet,0,aprsis_ && aprsis_->canTransmit());});
     if(history_)connect(aprsis_,&AprsisClient::packetTransmitted,history_,[this](const QByteArray &packet){history_->recordPacket(packet,256,0,true);});
+    connect(aprsis_, &AprsisClient::packetTransmitted, monitor_, [this](const QByteArray &packet) { monitor_->recordTransmitted(packet, 256); });
     QTimer::singleShot(0,aprsis_,&AprsisClient::start);
   }
   for(auto *client:clients_) { client->stop(); delete client; } clients_.clear();
@@ -257,6 +261,7 @@ void MainWindow::configureAgwpe(const XastirConfig &config) {
   for(const auto &settings:config.agwpe) {
     auto *client=new AgwpeClient(settings,stations_,this);clients_.append(client);
     if(history_)connect(client,&AgwpeClient::packetTransmitted,history_,[this,settings](const QByteArray &packet){history_->recordPacket(packet,settings.deviceIndex,0,true);});
+    connect(client, &AgwpeClient::packetTransmitted, monitor_, [this, settings](const QByteArray &packet) { monitor_->recordTransmitted(packet, settings.deviceIndex); });
     connect(client,&AgwpeClient::packetReceived,monitor_,[this,settings](const QByteArray &packet){monitor_->receive(packet,settings.deviceIndex);if(history_)history_->recordPacket(packet,settings.deviceIndex);});
     connect(client,&AgwpeClient::packetReceived,messages_,[this,settings](const QByteArray &packet){messages_->receivePacket(packet,settings.deviceIndex);});
     auto *label=new QLabel(tr("AGWPE stopped"),this);statusBar()->addWidget(label);interfaceLabels_.append(label);

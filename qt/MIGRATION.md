@@ -228,10 +228,38 @@ Linux offscreen checks cover hidden-window capture, periodic replacement,
 station/object/item selection, trail boundaries and limits, XML escaping,
 persistence, failure handling and configuration changes during a capture.
 
+## Traffic logging controls
+
+File now enables TNC, Net, Message and WX logging independently. Live reception
+and transport-accepted outgoing packets write replayable JSONL files containing
+original packet bytes, timestamp, device and direction. Message classification
+uses the shared C TNC2/third-party parser, also used by delivery, passive Internet
+reception and the permanent message archive. ACKs and bulletins are included.
+Weather classification uses the existing APRS decoders, including positionless
+reports. Queued TX records indicate transport acceptance, not RF reception or ACK.
+
+Configure → Timing selects the traffic log directory. Files use UTC dates,
+8 MiB rotations, a 32 MiB limit per category and seven calendar days of retention.
+The pending worker queue is limited to 1,024 records and 8 MiB; overflow drops
+records with a status notification. Disk writes, rotation and pruning run off the
+UI thread. A write error disables the affected category. Shutdown drains accepted
+work. These logs are independent of permanent message retention and SQLite history.
+
+Qt settings override imported `TNC_LOG_DATA`, `NET_LOG_DATA`, `LOG_MESSAGE` and
+`LOG_WX`. Legacy filenames are not reused; the default is the Qt app-data `logs`
+directory. All toggles default off. File replay preserves reception timestamps,
+labels outgoing records as queued TX and does not apply them to station state.
+Replay never re-enters logging, message delivery, auto-reply or transmission.
+IGate and WX Alert Logging remain explicitly unavailable pending their backends.
+
+Linux tests cover exact bytes, directions and classifications, shared envelope
+validation, replay isolation, rotation/retention, queue bounds and shutdown,
+configuration apply/cancel/restart and superseded write failures.
+
 ## Remaining migration work
 
 Unfinished menu entries still need implementation, including audio/speech,
-SmartBeaconing and several logging/export controls.
+SmartBeaconing and alert/gateway logging.
 Other gaps include GPS/NMEA integration, station ghosting,
 object/item transmission, telemetry, and NWS processing. Reception
 does not provide an implicit RF/Internet gateway.

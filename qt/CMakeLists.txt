@@ -19,6 +19,7 @@ add_library(xastir_qt_ui STATIC
   message_ui.cpp message_ui.h
   bulletin_ui.cpp bulletin_ui.h
   packet_monitor.cpp packet_monitor.h
+  traffic_log.cpp traffic_log.h
   station_navigator.cpp station_navigator.h
   station_menu.cpp station_menu.h
   station_details.cpp station_details.h
@@ -104,6 +105,14 @@ if(BUILD_TESTING)
   endif()
   add_test(NAME snapshots COMMAND test_snapshots)
   set_tests_properties(snapshots PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
+  qt_add_executable(test_traffic_log tests/test_traffic_log.cpp)
+  target_link_libraries(test_traffic_log PRIVATE xastir_qt_ui Qt6::Test)
+  set_target_properties(test_traffic_log PROPERTIES WIN32_EXECUTABLE FALSE)
+  if(TARGET Qt6::QOffscreenIntegrationPlugin)
+    qt_import_plugins(test_traffic_log INCLUDE Qt6::QOffscreenIntegrationPlugin)
+  endif()
+  add_test(NAME traffic_log COMMAND test_traffic_log)
+  set_tests_properties(traffic_log PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
   qt_add_executable(test_configuration tests/test_configuration.cpp)
   target_link_libraries(test_configuration PRIVATE xastir_qt_ui Qt6::Test)
   set_target_properties(test_configuration PROPERTIES WIN32_EXECUTABLE FALSE)

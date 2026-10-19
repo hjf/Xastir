@@ -50,11 +50,11 @@ PacketMonitor::PacketMonitor(QMainWindow *window) : QObject(window), window_(win
     connect(action, &QAction::triggered, this, &PacketMonitor::open);
   }
 }
-void PacketMonitor::append(const QByteArray &packet, int device, qint64 timestamp, bool replay)
+void PacketMonitor::append(const QByteArray &packet, int device, qint64 timestamp, bool replay, bool outgoing)
 {
   if (model_->rowCount() >= 2000) model_->removeRow(0);
   model_->appendRow({new QStandardItem(QDateTime::fromMSecsSinceEpoch(timestamp).toString("MM-dd HH:mm:ss.zzz")),
-    new QStandardItem(replay ? tr("Replay") : tr("Device %1").arg(device)),
+    new QStandardItem(replay ? (outgoing ? tr("Replay TX (queued)") : tr("Replay")) : tr("Device %1").arg(device)),
     new QStandardItem(trafficUtf8_ ? QString::fromUtf8(packet) : QString::fromLatin1(packet))});
 }
 void PacketMonitor::setTrafficUtf8(bool enabled)
@@ -65,6 +65,7 @@ void PacketMonitor::receive(const QByteArray &packet, int device)
 {
   const auto now = QDateTime::currentMSecsSinceEpoch();
   ++received_; append(packet, device, now, false);
+  emit packetObserved(packet, device, now, false);
   if (capturing()) {
     QJsonObject record{{"timestamp", now}, {"device", device}, {"packet", QString::fromLatin1(packet.toBase64())}};
     const auto line = QJsonDocument(record).toJson(QJsonDocument::Compact) + '\n';
@@ -73,6 +74,10 @@ void PacketMonitor::receive(const QByteArray &packet, int device)
     }
   }
   updateStatus();
+}
+void PacketMonitor::recordTransmitted(const QByteArray &packet, int device)
+{
+  emit packetObserved(packet, device, QDateTime::currentMSecsSinceEpoch(), true);
 }
 bool PacketMonitor::startCapture(const QString &path, QString *error)
 {
@@ -114,6 +119,7 @@ void PacketMonitor::replayNext()
   if (line.isEmpty() || line.startsWith('#')) return;
   QByteArray packet = line;
   qint64 timestamp = QDateTime::currentMSecsSinceEpoch();
+  bool outgoing = false;
   if (line.startsWith('{')) {
     const auto object = QJsonDocument::fromJson(line).object();
     const auto decoded = QByteArray::fromBase64Encoding(object.value("packet").toString().toLatin1(), QByteArray::AbortOnBase64DecodingErrors);
@@ -121,6 +127,10 @@ void PacketMonitor::replayNext()
       stopReplay(); emit errorOccurred(tr("Invalid capture record.")); return;
     }
     packet = decoded.decoded;
+    outgoing = object.value("outgoing").toBool(false);
+    if (object.contains("outgoing") && !object.value("outgoing").isBool()) {
+      stopReplay(); emit errorOccurred(tr("Invalid direction in capture record.")); return;
+    }
     bool validTimestamp = false;
     timestamp = object.value("timestamp").toVariant().toLongLong(&validTimestamp);
     if (!validTimestamp || timestamp < 1000) {
@@ -131,7 +141,9 @@ void PacketMonitor::replayNext()
       || packet.indexOf('>') < 1 || packet.indexOf(':') < packet.indexOf('>')) {
     stopReplay(); emit errorOccurred(tr("Invalid TNC2 packet in replay file.")); return;
   }
-  ++replayed_; append(packet, -1, timestamp, true); emit replayPacket(packet, timestamp); updateStatus();
+  ++replayed_; append(packet, -1, timestamp, true, outgoing);
+  if (!outgoing) emit replayPacket(packet, timestamp);
+  updateStatus();
 }
 void PacketMonitor::updateStatus()
 {

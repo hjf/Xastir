@@ -34,6 +34,8 @@ bool readXastirConfig(const QString &path, XastirConfig &config, QString *error)
   result.snapshotIntervalMinutes = bounded("SNAPSHOT_INTERVAL", 5, 1, 30);
   result.snapshotsEnabled = bounded("SNAPSHOTS_ENABLED", 0, 0, 1) != 0;
   result.kmlSnapshotsEnabled = bounded("KMLSNAPSHOTS_ENABLED", 0, 0, 1) != 0;
+  result.loggingMask = bounded("TNC_LOG_DATA", 0, 0, 1) | (bounded("NET_LOG_DATA", 0, 0, 1) << 1)
+    | (bounded("LOG_MESSAGE", 0, 0, 1) << 2) | (bounded("LOG_WX", 0, 0, 1) << 3);
   result.trafficUtf8 = bounded("TRAFFIC_UTF8", 1, 0, 1) != 0;
   Selections selection{};
   What_to_display display{};

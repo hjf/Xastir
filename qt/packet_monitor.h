@@ -13,6 +13,7 @@ class PacketMonitor : public QObject {
 public:
   explicit PacketMonitor(QMainWindow *window);
   void receive(const QByteArray &packet, int device);
+  void recordTransmitted(const QByteArray &packet, int device);
   void setTrafficUtf8(bool enabled);
   bool trafficUtf8() const { return trafficUtf8_; }
   bool startCapture(const QString &path, QString *error = nullptr);
@@ -26,10 +27,11 @@ public slots:
   void open();
   void openLogFile();
 signals:
+  void packetObserved(const QByteArray &packet, int device, qint64 timestamp, bool outgoing);
   void replayPacket(const QByteArray &packet, qint64 timestamp);
   void errorOccurred(const QString &error);
 private:
-  void append(const QByteArray &packet, int device, qint64 timestamp, bool replay);
+  void append(const QByteArray &packet, int device, qint64 timestamp, bool replay, bool outgoing = false);
   void replayNext();
   void updateStatus();
   QMainWindow *window_;

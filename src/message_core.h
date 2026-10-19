@@ -35,6 +35,8 @@ typedef struct {
 } XastirDecodedMessage;
 int xastir_message_bulletin_kind(const char *recipient);
 int xastir_decode_message(const char *information, XastirDecodedMessage *decoded);
+/* Parse a bounded TNC2 envelope, including up to four third-party wrappers. */
+int xastir_decode_message_packet(const char *packet, char *sender, size_t capacity, XastirDecodedMessage *decoded);
 int xastir_bump_message_counter(char *counter);
 int xastir_message_valid_text(const char *text);
 int xastir_message_valid_recipient(const char *name);

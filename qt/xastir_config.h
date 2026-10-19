@@ -32,6 +32,7 @@ struct XastirConfig {
   int snapshotIntervalMinutes = 5;
   bool snapshotsEnabled = false;
   bool kmlSnapshotsEnabled = false;
+  int loggingMask = 0;
   bool trafficUtf8 = true;
   AprsisSettings aprsis;
   bool transmitDisabled = false;
