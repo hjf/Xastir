@@ -27,6 +27,7 @@ add_library(xastir_qt_ui STATIC
   interface_control.cpp interface_control.h
   aprsis_client.cpp aprsis_client.h
   beacon_control.cpp beacon_control.h
+  object_control.cpp object_control.h
   history_store.cpp history_store.h
   history_ui.cpp history_ui.h
   aprs_symbols.cpp aprs_symbols.h
@@ -113,6 +114,14 @@ if(BUILD_TESTING)
   endif()
   add_test(NAME traffic_log COMMAND test_traffic_log)
   set_tests_properties(traffic_log PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
+  qt_add_executable(test_objects tests/test_objects.cpp)
+  target_link_libraries(test_objects PRIVATE xastir_qt_ui Qt6::Test)
+  set_target_properties(test_objects PROPERTIES WIN32_EXECUTABLE FALSE)
+  if(TARGET Qt6::QOffscreenIntegrationPlugin)
+    qt_import_plugins(test_objects INCLUDE Qt6::QOffscreenIntegrationPlugin)
+  endif()
+  add_test(NAME objects COMMAND test_objects)
+  set_tests_properties(objects PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
   qt_add_executable(test_configuration tests/test_configuration.cpp)
   target_link_libraries(test_configuration PRIVATE xastir_qt_ui Qt6::Test)
   set_target_properties(test_configuration PROPERTIES WIN32_EXECUTABLE FALSE)

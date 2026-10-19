@@ -37,6 +37,8 @@ struct XastirConfig {
   AprsisSettings aprsis;
   bool transmitDisabled = false;
   bool positionTransmitDisabled = true;
+  bool objectTransmitDisabled = true;
+  int objectIntervalSeconds = 1800;
   QString callsign;
   std::optional<Station> localStation;
   QList<AgwpeSettings> agwpe;

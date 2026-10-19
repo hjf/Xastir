@@ -11,6 +11,7 @@ the README also contains historical milestone descriptions.
 | Stations | Original database, comment/status history, weather, expiry and bounded trails | Station projection, navigation, details, map interaction and scheduled cleanup |
 | View menu | Original station-list membership and traversal, ALOHA calculation | Live station tables, own weather, details/navigation, ALOHA statistics and session uptime |
 | Messages | History storage, IDs, delivery ordering, retry/ACK policy, groups and auto reply | Conversations, queue controls and transport adapters |
+| Objects/items | Legacy name validation, normal formatting, kill markers, comment limits and decaying repeat calculations | Saved local drafts, create/edit/send/kill management and explicit AGWPE transmission |
 | Position beacons | Fixed-position packet formatting | Explicit TX controls and periodic scheduling |
 | Map overlays | Station selection, distance/bearing, PHG/DF, weather and dead reckoning calculations | Raster/vector painting, labels, display controls and offline maps |
 | History | Station and message restoration APIs | Worker-thread SQLite writes, bounded traffic retention, permanent message archive and safe replay |
@@ -256,12 +257,57 @@ Linux tests cover exact bytes, directions and classifications, shared envelope
 validation, replay isolation, rotation/retention, queue bounds and shutdown,
 configuration apply/cancel/restart and superseded write failures.
 
+## Own object/item transmission
+
+Station → Manage Own Objects/Items creates and edits fixed, uncompressed reports
+at the map center or entered decimal coordinates. The editor previews the actual
+information field. Save creates a live local draft and pauses repeats; Send now
+queues one report through the selected AGWPE interface. Kill queues an inactive
+report and removes the local map entity. Editing a killed definition prepares a
+live draft for a later explicit send. Names remain case sensitive. Items require
+3–9 characters and exclude `!` and `_`; objects permit 1–9 printable ASCII
+characters. Comments accept 43 printable ASCII bytes without silent truncation.
+
+The normal formatter, name validators, kill marker and comment append routines
+are extracted from original C code and shared by Qt and legacy adapters. The
+repeat service uses the legacy initial 20-second interval, doubling and up to
+20% jitter, bounded by each definition's maximum interval. Repeating kill
+reports stop after 20 accepted transmissions, including the initial kill.
+Rejected transport attempts consume no reports. At most four due reports are
+attempted per timer pass; failures wait 20 seconds before another attempt.
+
+Interface → Disable Transmit: Objects/Items is implemented, independent of My
+Position. Objects/items also respect Disable Transmit: ALL, interface Enable TX,
+connection state, matching station/interface callsigns and explicit RF paths.
+Blank paths inherit the interface route. There is no Internet fallback. Queued
+reports indicate AGWPE acceptance, without establishing RF delivery, reception,
+digipeater repetition or an ACK. An unsuccessful kill pauses the live schedule
+and reports the error, without falsely marking the entity killed.
+
+Up to 200 definitions persist in Qt settings, independently of received station
+history. Startup restores local drafts with their saved timestamps and leaves
+all object schedules paused. Newer archived reception is preserved. Restoration
+never queues packets or enters message delivery. Imported `DISABLE_OBJECT_TX`
+and `OBJECT_RATE` supply defaults; new installations disable object TX initially.
+Regular station-name collisions and objects/items now owned by another station
+block transmission rather than overwriting their state. Forget killed removes a
+definition without transmitting. Received-only objects are not automatically
+adopted as definitions.
+
+Linux fixtures verify exact live/kill wire formats, timestamp fields, name and
+comment limits, coordinate boundaries, decay and kill limits. Offscreen tests
+exercise draft editing, actual local AGWPE frames, separate transmit controls,
+receive-only rejection, ownership conflicts, repeat/kill transitions and restart
+without transmission. The existing 119 object utility and 42 object constructor
+compatibility cases still pass. Moving/compressed/area/DF object creation,
+automatic adoption and APRS-IS object transmission remain unfinished.
+
 ## Remaining migration work
 
 Unfinished menu entries still need implementation, including audio/speech,
 SmartBeaconing and alert/gateway logging.
 Other gaps include GPS/NMEA integration, station ghosting,
-object/item transmission, telemetry, and NWS processing. Reception
+advanced object modes, telemetry, and NWS processing. Reception
 does not provide an implicit RF/Internet gateway.
 
 The Linux tests cover shared C behavior, actual local AGWPE/APRS-IS fixture

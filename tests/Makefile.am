@@ -29,7 +29,7 @@ test_db_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir) -I$(top_srcdir)/src -I$(top_build
 #test_db_LDADD = -L$(top_builddir)/src/rtree -lrtree
 
 
-test_object_utils_SOURCES = test_object_utils.c test_object_utils_stubs.c $(top_srcdir)/src/object_utils.c
+test_object_utils_SOURCES = test_object_utils.c test_object_utils_stubs.c $(top_srcdir)/src/object_utils.c $(top_srcdir)/src/object_core.c $(top_srcdir)/src/aprs_position.c
 test_object_utils_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir) -I$(top_srcdir)/src -I$(top_builddir)
 
 test_output_my_aprs_data_SOURCES = test_output_my_aprs_data.c mock_output_my_aprs_data.c \
@@ -40,7 +40,7 @@ test_output_my_aprs_data_LDADD = -lpthread -lm
 test_util_SOURCES = test_util.c test_util_stubs.c $(top_srcdir)/src/util.c $(top_srcdir)/src/aprs_position.c $(top_srcdir)/src/aprs_mice.c $(top_srcdir)/src/station_db.c $(top_srcdir)/src/station_view.c $(top_srcdir)/src/message_store.c $(top_srcdir)/src/message_core.c
 test_util_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir) -I$(top_srcdir)/src -I$(top_builddir)
 
-test_objects_SOURCES = test_objects.c test_objects_stubs.c $(top_srcdir)/src/objects.c $(top_srcdir)/src/util.c $(top_srcdir)/src/object_utils.c $(top_srcdir)/src/db.c $(top_srcdir)/src/encoding.c $(top_srcdir)/src/aprs_position.c $(top_srcdir)/src/aprs_mice.c $(top_srcdir)/src/station_db.c $(top_srcdir)/src/station_view.c $(top_srcdir)/src/message_store.c $(top_srcdir)/src/message_core.c
+test_objects_SOURCES = test_objects.c test_objects_stubs.c $(top_srcdir)/src/objects.c $(top_srcdir)/src/util.c $(top_srcdir)/src/object_utils.c $(top_srcdir)/src/object_core.c $(top_srcdir)/src/db.c $(top_srcdir)/src/encoding.c $(top_srcdir)/src/aprs_position.c $(top_srcdir)/src/aprs_mice.c $(top_srcdir)/src/station_db.c $(top_srcdir)/src/station_view.c $(top_srcdir)/src/message_store.c $(top_srcdir)/src/message_core.c
 test_objects_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir) -I$(top_srcdir)/src -I$(top_builddir)
 
 test_log_utils_SOURCES = test_log_utils.c test_log_utils_stubs.c $(top_srcdir)/src/log_utils.c $(top_srcdir)/src/util.c $(top_srcdir)/src/aprs_position.c $(top_srcdir)/src/aprs_mice.c $(top_srcdir)/src/station_db.c $(top_srcdir)/src/station_view.c $(top_srcdir)/src/message_store.c $(top_srcdir)/src/message_core.c

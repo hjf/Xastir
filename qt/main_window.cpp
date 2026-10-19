@@ -19,6 +19,7 @@
 #include "interface_control.h"
 #include "aprsis_client.h"
 #include "beacon_control.h"
+#include "object_control.h"
 #include "history_ui.h"
 #include <QDebug>
 #include "aprs_decoder.h"
@@ -141,16 +142,18 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   connect(beacons_,&BeaconControl::transmitDisabledChanged,this,[this](bool disabled){transmitDisabled_=disabled;});
   connect(beacons_,&BeaconControl::statusChanged,statusBar(),[this](const QString &message){statusBar()->showMessage(message,10000);});
   configureAgwpe(options.config);
+  auto *objects = new ObjectControl(this, stations_, mapWidget_, beacons_, options.config, [this] { return clients_; });
   messageUi_ = new MessageUi(this, messages_, clients_, options.config.autoReplyText);
   messageUi_->setClients(clients_,aprsis_);
   new StationDetails(this, stations_, mapWidget_, navigator, messageUi_, options.config.callsign);
   auto *interfaces=new InterfaceControl(this,options.config);
-  connect(interfaces,&InterfaceControl::configurationChanged,this,[this](const XastirConfig &config) {
+  connect(interfaces,&InterfaceControl::configurationChanged,this,[this, objects](const XastirConfig &config) {
     if(config.callsign!=messages_->callsign()) return; // Identity changes take effect on restart.
     localStation_=config.localStation; if(localStation_) {localStation_->local=true;stations_->upsert(*localStation_);}
     stationMenu_->setLocalStation(localStation_);
     configureAgwpe(config);
     beacons_->configure(config);
+    objects->configure(config);
   });
 
 }

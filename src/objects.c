@@ -44,6 +44,7 @@
 #include "xa_config.h"
 #include "interface.h"
 #include "objects.h"
+#include "object_core.h"
 #include "object_utils.h"
 #include "dr_utils.h"
 
@@ -72,65 +73,8 @@ void add_comment(DataRow *p_station, char *comment_string);
 /*
  *  Check for a valid object name
  */
-int valid_object(char *name)
-{
-  int len, i;
-
-  // max 9 printable ASCII characters, case sensitive   [APRS
-  // Reference]
-  len = (int)strlen(name);
-  if (len > 9 || len == 0)
-  {
-    return(0);  // wrong size
-  }
-
-  for (i=0; i<len; i++)
-    if (!isprint((int)name[i]))
-    {
-      return(0);  // not printable
-    }
-
-  return(1);
-}
-
-
-
-
-
-/*
- *  Check for a valid item name (3-9 chars, any printable ASCII
- *  except '!' or '_')
- */
-int valid_item(char *name)
-{
-  int len, i;
-
-  // min 3, max 9 printable ASCII characters, case sensitive
-  // [APRS Reference]
-  len = (int)strlen(name);
-  if (len > 9 || len < 3)
-  {
-    return(0);  // Wrong size
-  }
-
-  for (i=0; i<len; i++)
-  {
-    if (!isprint((int)name[i]))
-    {
-      return(0);                  // Not printable
-    }
-    if ( (name[i] == '!') || (name[i] == '_') )
-    {
-      return(0);                  // Contains '!' or '_'
-    }
-  }
-
-  return(1);
-}
-
-
-
-
+int valid_object(char *name) { return xastir_object_valid_name(name, 1); }
+int valid_item(char *name) { return xastir_object_valid_name(name, 0); }
 
 /*
  *  Create the transmit string for Objects/Items.

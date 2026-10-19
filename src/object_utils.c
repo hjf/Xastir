@@ -35,6 +35,7 @@
 #include <string.h>
 
 #include "object_utils.h"
+#include "object_core.h"
 
 // forward declaration so we don't need to include util.h and all that
 // drags in, and so we can mock them up in unit testing
@@ -701,6 +702,12 @@ void format_normal_object_item_packet(char *dst, size_t dst_size,
                                       int course, int speed,
                                       int is_object, int compressed)
 {
+  if (!compressed) {
+    xastir_format_object_item(dst, dst_size, name, is_object, time, lat_str, object_group,
+                             lon_str, object_symbol, speed_course, altitude);
+    return;
+  }
+
   if (is_object)     // It's an object
   {
 
@@ -716,18 +723,6 @@ void format_normal_object_item_packet(char *dst, size_t dst_size,
                                      course,
                                      speed,  // In knots
                                      ""),    // PHG, must be blank
-                      altitude);
-    }
-    else    // Non-compressed posit object
-    {
-      xastir_snprintf(dst, dst_size, ";%-9s*%s%s%c%s%c%s%s",
-                      name,
-                      time,
-                      lat_str,
-                      object_group,
-                      lon_str,
-                      object_symbol,
-                      speed_course,
                       altitude);
     }
   }
@@ -747,57 +742,14 @@ void format_normal_object_item_packet(char *dst, size_t dst_size,
                                      ""),    // PHG, must be blank
                       altitude);
     }
-    else    // Non-compressed item
-    {
-      xastir_snprintf(dst, dst_size, ")%s!%s%c%s%c%s%s",
-                      name,
-                      lat_str,
-                      object_group,
-                      lon_str,
-                      object_symbol,
-                      speed_course,
-                      altitude);
-    }
   }
 }
 
 // If the object or item has been marked killed, change the character in the
 // line to reflect a killed object
-int reformat_killed_object_item_packet(char *dst, size_t dst_size,
-                                       int is_object, int is_active)
+int reformat_killed_object_item_packet(char *dst, size_t dst_size, int is_object, int is_active)
 {
-  int i;
-  int done;
-  int killed;
-  killed = 0;
-  if (is_object)                 // It's an object
-  {
-    if (!is_active)     // It's been killed
-    {
-      dst[10] = '_';
-      killed++;
-    }
-  }
-  // If it's a "killed" item, change '!' to an '_'
-  else                                                    // It's an item
-  {
-    if (!is_active)     // It's been killed
-    {
-      killed++;
-      done = 0;
-      i = 0;
-      while ( (!done) && (i < 11) )
-      {
-        if (dst[i] == '!')
-        {
-          dst[i] = '_';          // mark as deleted object
-          done++;                 // Exit from loop
-        }
-        i++;
-      }
-    }
-  }
-  return (killed);
+  return xastir_object_mark_killed(dst, dst_size, is_object, is_active);
 }
 
 // Surely this could be done in a more straightforward manner
@@ -815,41 +767,5 @@ void append_comment_to_object_item_packet(char *line, size_t line_length,
                                           char *name,
                                           int is_object)
 {
-  int temp = 0;
-  // We need to tack the comment on the end, but need to make
-  // sure we don't go over the maximum length for an object/item.
-  if (strlen(comment) != 0)
-  {
-    temp = 0;
-    if (is_object)
-    {
-      while ( (strlen(line) < 80) && (temp < (int)strlen(comment)) )
-      {
-        line[strlen(line) + 1] = '\0';
-        line[strlen(line)] = comment[temp++];
-      }
-    }
-    else    // It's an item
-    {
-      while ( (strlen(line) < (64 + strlen(name))) && (temp < (int)strlen(comment)) )
-      {
-        line[strlen(line) + 1] = '\0';
-        line[strlen(line)] = comment[temp++];
-      }
-    }
-  }
-  // This note was in the original:
-
-  //---
-  // NOTE:  Compressed mode will be shorter still.  Account
-  // for that when compressed mode is implemented for objects/items.
-  //---
-
-  // But compressed mode IS implemented for objects/items, so clearly
-  // this stuff is not accounted for yet.
-  // According to spec, an object with compressed position can have a max
-  // length of 74 chars, not 80, and an item with compressed position can have
-  // a max length of 58+strlen(name), not 64+strlen(name).
-  // When we refactor this function, make it so, and pass in the compressed
-  // boolean.
+  xastir_object_append_comment(line, line_length, comment, name, is_object);
 }

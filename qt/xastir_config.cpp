@@ -36,6 +36,8 @@ bool readXastirConfig(const QString &path, XastirConfig &config, QString *error)
   result.kmlSnapshotsEnabled = bounded("KMLSNAPSHOTS_ENABLED", 0, 0, 1) != 0;
   result.loggingMask = bounded("TNC_LOG_DATA", 0, 0, 1) | (bounded("NET_LOG_DATA", 0, 0, 1) << 1)
     | (bounded("LOG_MESSAGE", 0, 0, 1) << 2) | (bounded("LOG_WX", 0, 0, 1) << 3);
+  result.objectTransmitDisabled = bounded("DISABLE_OBJECT_TX", 1, 0, 1) != 0;
+  result.objectIntervalSeconds = bounded("OBJECT_RATE", 1800, 20, 86400);
   result.trafficUtf8 = bounded("TRAFFIC_UTF8", 1, 0, 1) != 0;
   Selections selection{};
   What_to_display display{};
