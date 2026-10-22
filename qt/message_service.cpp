@@ -81,7 +81,7 @@ bool MessageService::sendMessage(QString recipient, QString text, bool group, in
   recipient = recipient.trimmed().toUpper();
   if (recipient.contains(QChar(0))) return fail(error, tr("Invalid recipient."));
   if (!validText(text, error) || !validPath(path, error)) return false;
-  if (!transport_ || device < 0) return fail(error, tr("Select a configured AGWPE interface."));
+  if (!transport_ || device < 0) return fail(error, tr("Select a configured interface."));
   char reason[256] = {};
   const bool sent = xastir_messages_send(core_.get(), recipient.toUtf8().constData(), text.toUtf8().constData(),
       group, device, path.toUtf8().constData(), clock_(), reason, sizeof(reason));
@@ -92,7 +92,7 @@ bool MessageService::sendMessage(QString recipient, QString text, bool group, in
 bool MessageService::sendQuery(const QByteArray &query, int device, QString *error)
 {
   if (query.contains('\0')) return fail(error, tr("Unsupported station query."));
-  if (!transport_ || device < 0) return fail(error, tr("Select a configured AGWPE interface."));
+  if (!transport_ || device < 0) return fail(error, tr("Select a configured interface."));
   char reason[256] = {};
   const bool sent = xastir_messages_query(core_.get(), query.constData(), device, clock_(), reason, sizeof(reason));
   sync(); return sent || fail(error, QString::fromUtf8(reason));

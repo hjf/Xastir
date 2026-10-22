@@ -6,9 +6,9 @@ work. The milestone sections below also describe earlier migration stages.
 A Qt 6 Widgets frontend with a shared legacy C decoding core, built with CMake. The first milestone is
 a main window, the legacy menu structure, an interactive OpenStreetMap raster map, and APRS
 station and object icons with name labels. Station state can be loaded from JSON
-snapshots or received live through an AGWPE client. The Message menu supports
+snapshots or received live through AGWPE, serial KISS, or APRS-IS. The Message menu supports
 APRS conversations and explicitly enabled transmission. The legacy C station database and message backend are shared with this frontend.
-Serial interfaces are not linked into this executable.
+Standard KISS serial TNCs use Qt Serial Port and the shared C AX.25/KISS codecs.
 
 ## Linux dependencies
 
@@ -16,10 +16,10 @@ On Debian/Ubuntu:
 
 ```sh
 sudo apt-get update
-sudo apt-get install build-essential cmake ninja-build qt6-base-dev qt6-base-dev-tools qt6-qpa-plugins libsqlite3-dev
+sudo apt-get install build-essential cmake ninja-build qt6-base-dev qt6-base-dev-tools qt6-qpa-plugins qt6-serialport-dev libsqlite3-dev
 ```
 
-The project requires Qt 6.4 or newer (Widgets and Network; Test when tests are
+The project requires Qt 6.4 or newer (Widgets, Network, PrintSupport and SerialPort; Test when tests are
 enabled), SQLite 3.24 or newer, CMake 3.21 or newer, a C99 compiler, and a C++17 compiler. It has no Motif or Xlib
 application dependencies. Qt chooses the platform backend.
 
@@ -57,11 +57,14 @@ Ninja and native Qt **6.8.2** host tools. Then run:
 ./scripts/build-qt-windows.sh
 ```
 
-The script verifies the official Qt source checksum, builds a static Windows
+The script verifies the official Qt Base and Serial Port source checksums, builds a static Windows
 x64 Qt SDK, builds the application and tests, and packages
 `build/xastir-qt-windows-x64.zip`. The first build takes considerably longer
 than subsequent builds; set `XASTIR_BUILD_JOBS` to control parallelism.
 `XASTIR_QT_HOST` and `XASTIR_QT_HOST_CMAKE` select alternate native host tools.
+
+The serial dependency recipe has been updated, but has not been built or tested
+on Windows; Windows builds remain deferred at the user’s request.
 
 The EXE embeds Qt, compiler runtimes, APRS symbols and plugins. It uses Windows
 Schannel for HTTPS, so no OpenSSL DLLs are needed. Only Windows system libraries
@@ -83,7 +86,7 @@ opens the Qt interface and station settings dialog, Save Config Now flushes
 the Qt settings store, and Exit closes the main window. Other unfinished leaf
 actions open a **Not implemented yet** dialog; placeholder toggles do not
 change settings. Submenu entries open their nested menus. Map navigation and
-configured AGWPE startup reception continue independently of these
+configured radio startup reception continue independently of these
 placeholders. JSON snapshots remain available through `--stations`.
 
 ## APRS station icons
@@ -141,12 +144,12 @@ using queued connections when receiving data from another thread.
 By default the application reads `~/.xastir/config/xastir.cnf` without modifying
 it. It imports the station callsign, location and symbol, plus each AGWPE device
 (`DEVICE<n>_TYPE:12`): `HOST`, `SPEED` (TCP port), `PASSWD`, `ONSTARTUP`, `RECONN`,
-`TXMT`, `FILTER_PARAMS` (radio port), and `UNPROTO1` (path). Other interface types, including APRS-IS, are ignored. An absent default
+`TXMT`, `FILTER_PARAMS` (radio port), and `UNPROTO1` (path). Serial KISS types 10/13 are also imported as described below. Other interface types, including legacy APRS-IS, are ignored. An absent default
 configuration is allowed; an explicit unreadable configuration is an error.
 
 ```sh
 ./build/qt/qt/xastir-qt --config /path/to/xastir.cnf
-./build/qt/qt/xastir-qt --no-agwpe   # import local station, without connecting
+./build/qt/qt/xastir-qt --no-agwpe --no-kiss  # import settings, leaving radio interfaces closed
 ./build/qt/qt/xastir-qt --no-config  # standalone viewer / synthetic examples
 ```
 
@@ -211,7 +214,7 @@ private messages retry after 7 seconds with exponential backoff capped at 10
 minutes, up to 18 transmission attempts. Disconnections do not consume attempts.
 Automatic ACKs are limited to one per message ID per 30 seconds.
 
-Sending uses AGWPE unproto `M`/`V` frames, PID `F0`, your configured callsign and
+For AGWPE, sending uses unproto `M`/`V` frames, PID `F0`, your configured callsign and
 radio port (`FILTER_PARAMS`, one-based in the configuration). `UNPROTO1` supplies
 the default path; an empty conversation path sends direct. `TXMT` and the global
 `DISABLE_TRANSMIT` setting are respected. Receive-only interfaces are labelled
@@ -223,10 +226,11 @@ one run, without editing the legacy configuration:
 ```
 
 This enables RF message/query transmission and automatic ACKs on configured
-AGWPE interfaces. No beaconing, digipeating or IGating is implemented. Settings
+AGWPE interfaces; serial KISS TX is enabled separately in Interface Control.
+Beaconing is described below; digipeating and IGating remain unfinished. Settings
 for reply text, groups and satellite mode use Qt's application settings; the
-legacy configuration remains untouched. Message history and the outgoing queue
-are session-only (up to 2,000 history records and 100 pending messages).
+legacy configuration remains untouched. Message history is retained in SQLite
+when history is enabled; the active queue remains bounded to 100 pending messages.
 
 Protocol references: [APRS message formats](https://www.aprs.org/doc/APRS101.PDF),
 [Reply-ACK algorithm](https://www.aprs.org/aprs11/replyacks.txt), and
@@ -346,7 +350,7 @@ comment retention, movement trails, expiry, peer/history bounds, ordering,
 ACK/Reply-ACK, retries, groups, and identifier rollover. Qt tests exercise
 these same backends through the existing menus and local AGWPE fixtures.
 
-View → Incoming Data (Visor → Datos Entrantes) opens the AGWPE packet monitor.
+View → Incoming Data (Visor → Datos Entrantes) opens the packet monitor.
 It retains the latest 2,000 packets, including non-position packets, identifies
 receiving devices, and filters by packet text or callsign. Clear only clears the
 visible history. Monitoring continues while the window is closed.
@@ -429,7 +433,7 @@ station record. Details include position, last heard, owner, course/speed,
 altitude, comment, path, weather, and distance/bearing from your local station.
 The dialog offers messaging, tracking, and trail display.
 
-Interface → Interface Control configures the local station and AGWPE devices.
+Interface → Interface Control configures the local station, AGWPE and serial KISS devices.
 Save applies connection changes immediately and stores them in Qt application
 settings. New message windows use the updated devices; message history and
 pending delivery state are retained. Connections start when their Startup
@@ -438,6 +442,55 @@ station callsign takes effect after restarting, preserving queued message
 identity. Saved Qt settings override imported CNF station/interface values;
 `--no-config` skips both configuration sources. Transmission starts disabled
 on new devices and requires explicitly checking Enable TX.
+
+## Serial KISS TNCs
+
+In Interface Control, select **Serial KISS**, add a device and select or enter its
+serial port (`/dev/ttyUSB0`, `/dev/serial/by-id/…`, or `COM3`), baud rate, KISS
+channel (0–15), and RF path. Device numbers must be unique across AGWPE and
+KISS. New devices have Startup and Enable TX unchecked. Save applies and stores
+settings; Startup opens the port automatically. **Open saved port** and
+**Close saved port** control it manually; Close also stops automatic reconnect.
+An open port only establishes a host serial connection, not successful TNC or RF
+reception. The packet counter advances when valid frames arrive.
+
+This iteration supports standard KISS data frames, 8N1 and no flow control.
+The TNC must already be in KISS mode. GPS, command-mode scripts, mode-entry/exit
+strings, SMACK/FlexNet CRC extensions and kernel AX.25 are not implemented.
+One selected channel is used for both reception and transmission on each device;
+other channels and non-data commands are ignored on receive.
+
+TX delay, persistence, slot time, TX tail and full duplex are stored separately
+from connection settings. **Apply displayed TNC parameters** explicitly sends all
+five displayed values to the open saved connection, including when receive-only.
+Delay, slot and tail values are in 10 ms units; persistence is a raw 0–255 value.
+Neither startup nor reconnect applies parameters or sends mode-entry commands.
+Save alone does not send parameters. Cancel cannot undo commands already sent.
+KISS provides no command or frame acknowledgement.
+
+Messages, ACKs, queries, position beacons and owned objects/items can use the
+selected serial device. Enable TX and the existing global and position/object
+transmit controls still apply. A successful send means admission to the bounded
+host queue; it does not establish TNC acceptance, RF transmission, reception,
+digipeater repetition or an APRS message ACK. Closing or losing a port drops
+queued bytes; interrupted messages retain the normal retry/manual-retry policy.
+Disable Transmit ALL drops pending host output; bytes already sent cannot be
+recalled. Reception never enables forwarding or an RF/Internet gateway.
+
+Legacy import recognizes types 10/13 and their `NAME`, `SPEED`, `STYLE:0`,
+`RADIO_PORT`, `UNPROTO1`, `ONSTARTUP`, `RECONN`, `TXMT` and five `TNC_*` parameters.
+Linux speed constants (for example 13 → 9600 and 4098 → 115200) are converted to
+actual baud rates; configurations storing literal rates also work. Unsupported
+serial styles or malformed parameters produce an import error. Legacy automatic
+KISS mode-entry settings are intentionally ignored. Older saved Qt configurations
+without a serial section retain imported KISS devices; saving now records the
+serial list explicitly. `--no-kiss` suppresses serial devices for the run.
+
+Linux pseudo-terminal fixtures exercise framing, escaped payload/command bytes,
+channel filtering, malformed-stream recovery, bounded work/queues, receive-only
+operation, global blocking, disconnect/reconnect, explicit parameter commands,
+settings, message ACKs, beacons, objects and restoration without transmission.
+These fixtures do not establish behavior of a physical TNC or serial driver.
 
 ## APRS-IS reception
 
@@ -455,12 +508,12 @@ Messages addressed to your exact callsign/SSID open the conversation even in
 receive-only mode; the APRS-IS interface is selected for Internet conversations.
 Verified connections use the shared C message engine for ACKs, retries, and
 delivery status. Internet replies never select a prior RF route. Disable
-Transmit ALL also blocks APRS-IS messages and ACKs. Position beacons remain AGWPE-only. Incoming lines and buffering
+Transmit ALL also blocks APRS-IS messages and ACKs. Position beacons use AGWPE or serial KISS. Incoming lines and buffering
 are bounded and processed in batches, with timeout and reconnect handling.
 
 ## Position beacons and transmit controls
 
-Interface → Transmit Now opens a position preview and AGWPE device selector.
+Interface → Transmit Now opens a position preview and radio device selector.
 Enable TX on the chosen device in Interface Control and clear Disable My
 Position before sending. Disable Transmit ALL blocks position beacons, messages,
 and acknowledgments. New installations keep position transmission disabled.
@@ -476,8 +529,8 @@ APRS-IS supports explicitly enabled messages/ACKs, but not position beacons.
 
 ## Persistent history
 
-History is enabled by default. Received AGWPE and APRS-IS traffic, plus packets
-accepted for transmission by AGWPE, are saved to SQLite on a background writer
+History is enabled by default. Received AGWPE, serial KISS and APRS-IS traffic, plus packets
+accepted by a radio transport for transmission, are saved to SQLite on a background writer
 thread. Traffic is retained for seven days, with additional limits of 100,000
 packets and 64 MiB of packet payload. Age cleanup runs at startup and every
 minute; busy feeds also run cleanup every 256 writes. These limits apply to

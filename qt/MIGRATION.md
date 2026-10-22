@@ -7,20 +7,20 @@ the README also contains historical milestone descriptions.
 
 | Area | Shared C behavior | Qt integration |
 | --- | --- | --- |
-| Position reports | Original uncompressed/compressed, DAO and Mic-E decoding | TNC2 dispatch, AGWPE and APRS-IS reception |
+| Position reports | Original uncompressed/compressed, DAO and Mic-E decoding | TNC2 dispatch, AGWPE, serial KISS and APRS-IS reception |
 | Stations | Original database, comment/status history, weather, expiry and bounded trails | Station projection, navigation, details, map interaction and scheduled cleanup |
 | View menu | Original station-list membership and traversal, ALOHA calculation | Live station tables, own weather, details/navigation, ALOHA statistics and session uptime |
 | Messages | History storage, IDs, delivery ordering, retry/ACK policy, groups and auto reply | Conversations, queue controls and transport adapters |
-| Objects/items | Legacy name validation, normal formatting, kill markers, comment limits and decaying repeat calculations | Saved local drafts, create/edit/send/kill management and explicit AGWPE transmission |
+| Objects/items | Legacy name validation, normal formatting, kill markers, comment limits and decaying repeat calculations | Saved local drafts, create/edit/send/kill management and explicit AGWPE/serial KISS transmission |
 | Position beacons | Fixed-position packet formatting | Explicit TX controls and periodic scheduling |
 | Map overlays | Station selection, distance/bearing, PHG/DF, weather and dead reckoning calculations | Raster/vector painting, labels, display controls and offline maps |
 | History | Station and message restoration APIs | Worker-thread SQLite writes, bounded traffic retention, permanent message archive and safe replay |
 | File operations | Shared station state for replay/export | Printing, KML export, Defaults/Timing dialogs and periodic PNG/KML snapshots |
 
 The native Qt application and tests build through CMake without Motif/Xlib
-application dependencies. Qt owns presentation, sockets and storage adapters.
-Serial support remains outside this migration's current scope; AGWPE supplies
-radio/TNC integration.
+application dependencies. Qt owns presentation, sockets, serial ports and storage adapters.
+AGWPE and standard serial KISS supply radio/TNC integration; serial GPS and
+command-mode or proprietary TNC protocols remain unfinished.
 
 ## File menu: station configuration, save and exit
 
@@ -42,7 +42,7 @@ bytes and closing the visible window.
 
 ## APRS status reports
 
-AGWPE, APRS-IS, capture replay and startup restoration accept `>` status reports,
+AGWPE, serial KISS, APRS-IS, capture replay and startup restoration accept `>` status reports,
 including third-party encapsulation within the existing depth limit. For example:
 
 ```text
@@ -271,7 +271,7 @@ configuration apply/cancel/restart and superseded write failures.
 Station → Manage Own Objects/Items creates and edits fixed, uncompressed reports
 at the map center or entered decimal coordinates. The editor previews the actual
 information field. Save creates a live local draft and pauses repeats; Send now
-queues one report through the selected AGWPE interface. Kill queues an inactive
+queues one report through the selected radio interface. Kill queues an inactive
 report and removes the local map entity. Editing a killed definition prepares a
 live draft for a later explicit send. Names remain case sensitive. Items require
 3–9 characters and exclude `!` and `_`; objects permit 1–9 printable ASCII
@@ -289,7 +289,7 @@ Interface → Disable Transmit: Objects/Items is implemented, independent of My
 Position. Objects/items also respect Disable Transmit: ALL, interface Enable TX,
 connection state, matching station/interface callsigns and explicit RF paths.
 Blank paths inherit the interface route. There is no Internet fallback. Queued
-reports indicate AGWPE acceptance, without establishing RF delivery, reception,
+reports indicate host transport queue admission, without establishing RF delivery, reception,
 digipeater repetition or an ACK. An unsuccessful kill pauses the live schedule
 and reports the error, without falsely marking the entity killed.
 
@@ -326,8 +326,41 @@ C fixtures verify actual AX.25 bytes, SSIDs and repeated-hop flags, truncated an
 invalid frames, all 256 byte values on all 16 KISS channels, configuration values
 192/219, frame limits and malformed-stream recovery. The Qt radio adapters now share a transport interface and C-backed outgoing
 AX.25 validation. Messages, beacons and objects select radios through that
-interface, retaining device IDs and explicit RF routes. The serial adapter and
-configuration integration are the next increment.
+interface, retaining device IDs and explicit RF routes.
+
+## Serial KISS interfaces
+
+`KissClient` uses Qt Serial Port for asynchronous 8N1 serial I/O and the shared
+C codecs for data framing. One selected KISS channel (0–15) per device carries
+messages, ACKs, queries, fixed-position beacons and owned objects/items through
+the same consumers as AGWPE. Received packets enter the station, message,
+bulletin, monitor, logging and history services. No implicit forwarding is added.
+Receive-only defaults and global/position/object transmit controls are preserved.
+
+Input is bounded to 64 KiB with at most 16 KiB or 64 completed frames processed
+per event-loop turn. Oversize/malformed frames recover at the next delimiter.
+Output is bounded to 128 queued frames and 64 KiB including Qt's write buffer;
+only 16 KiB enters that buffer at once. Disconnect/stop drops pending bytes and
+resets framing. Optional reconnect backs off from 2 to 30 seconds. A successful
+send means host queue admission; standard KISS cannot confirm TNC acceptance or
+RF delivery. Disable Transmit ALL also clears pending host output.
+
+Interface Control has serial port selection/manual entry, actual baud rate,
+channel, path, startup/reconnect/TX flags, manual open/close and five KISS
+parameters. Parameters are sent only by **Apply displayed TNC parameters**, never
+on startup, Save or reconnect. The TNC must already be in KISS mode. This
+iteration excludes GPS, mode-entry/exit scripts and proprietary CRC variants.
+Types 10/13 legacy configurations import into this adapter, including Linux
+`speed_t` conversion and explicit TX flags. Qt settings persist separately from
+the legacy CNF. `--no-kiss` suppresses serial connections for a run.
+
+Linux pseudo-terminal fixtures verify actual wire bytes, fragmented/escaped and
+back-to-back frames, channel/command filtering, invalid/oversize recovery, event
+loop yielding, queue bounds, global cancellation, reconnect, parameter escaping,
+receive-only ACK suppression, message delivery ACKs, beacons/objects, settings
+and history restoration without TX. No physical device was accessed. Linux
+builds now require `qt6-serialport-dev`. The deferred Windows build recipe includes
+Qt Serial Port; no Windows build was run.
 
 ## Remaining migration work
 
@@ -337,7 +370,7 @@ Other gaps include GPS/NMEA integration, station ghosting,
 advanced object modes, telemetry, and NWS processing. Reception
 does not provide an implicit RF/Internet gateway.
 
-The Linux tests cover shared C behavior, actual local AGWPE/APRS-IS fixture
+The Linux tests cover shared C behavior, actual local serial KISS/AGWPE/APRS-IS fixture
 traffic, message transitions and transmit controls, history/replay safety, and
 offscreen UI interactions. Status coverage includes malformed input, optional
 timestamps, duplicate and history bounds, retained coordinates, live details

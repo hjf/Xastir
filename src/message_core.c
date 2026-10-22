@@ -482,7 +482,7 @@ int xastir_messages_send(XastirMessages *c, const char *to, const char *text, in
   if (!xastir_message_valid_recipient(to)) return error(err, capacity, "Recipient must be 1–9 letters, digits or hyphens.");
   if (!xastir_message_valid_text(text)) return error(err, capacity, "Message text must contain 1–67 printable ASCII characters without |, ~, or {.");
   if (!xastir_message_valid_path(path)) return error(err, capacity, "Invalid digipeater in path.");
-  if (!c->tx || device < 0) return error(err, capacity, "Select a configured AGWPE interface.");
+  if (!c->tx || device < 0) return error(err, capacity, "Select a configured interface.");
   if (!free_slot(c)) return error(err, capacity, "The outgoing queue is full (100 pending messages).");
   Message m = {0};
   copy(m.call_sign, sizeof(m.call_sign), to); copy(m.from_call_sign, sizeof(m.from_call_sign), c->callsign);
@@ -558,7 +558,7 @@ static void acknowledge(XastirMessages *c, const char *from, const char *seq, in
 int xastir_messages_query(XastirMessages *c, const char *query, int device, int64_t now, char *err, size_t capacity)
 {
   if (strcmp(query, "?APRS?") && strcmp(query, "?IGATE?") && strcmp(query, "?WX?")) return error(err, capacity, "Unsupported station query.");
-  if (device < 0) return error(err, capacity, "Select a configured AGWPE interface.");
+  if (device < 0) return error(err, capacity, "Select a configured interface.");
   if (!transmit(c, query, device, "", err, capacity)) return 0;
   c->auto_reply = 0;
   Message m = {0}; m.outgoing = m.group = 1; m.status = XMSG_QUERY_SENT; m.device = device; m.timestamp_ms = now;

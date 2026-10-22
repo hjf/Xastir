@@ -7,6 +7,8 @@ deps="$root/build/windows-deps"
 version=6.8.2
 archive="qtbase-everywhere-src-$version.tar.xz"
 source_dir="$deps/qtbase-everywhere-src-$version"
+serial_archive="qtserialport-everywhere-src-$version.tar.xz"
+serial_source="$deps/qtserialport-everywhere-src-$version"
 sdk="$deps/qt-static-sdk"
 jobs=${XASTIR_BUILD_JOBS:-4}
 host=${XASTIR_QT_HOST:-/usr}
@@ -17,15 +19,19 @@ if [[ $("$host/bin/qmake6" -query QT_VERSION) != "$version" ]]; then
 fi
 mkdir -p "$deps"
 base="https://download.qt.io/archive/qt/6.8/$version/submodules"
-for file in "$archive" "$archive.sha256"; do
+for file in "$archive" "$archive.sha256" "$serial_archive" "$serial_archive.sha256"; do
   if [[ ! -f "$deps/$file" ]]; then
     curl --fail --location --retry 3 "$base/$file" -o "$deps/$file.partial"
     mv "$deps/$file.partial" "$deps/$file"
   fi
 done
 (cd "$deps" && sha256sum -c "$archive.sha256")
+(cd "$deps" && sha256sum -c "$serial_archive.sha256")
 if [[ ! -d "$source_dir" ]]; then
   tar -xf "$deps/$archive" -C "$deps"
+fi
+if [[ ! -d "$serial_source" ]]; then
+  tar -xf "$deps/$serial_archive" -C "$deps"
 fi
 cmake -S "$source_dir" -B "$deps/qt-static-build" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$root/cmake/toolchains/mingw64.cmake" \
@@ -35,11 +41,18 @@ cmake -S "$source_dir" -B "$deps/qt-static-build" -G Ninja \
   -DINPUT_opengl=no -DQT_FEATURE_opengl=OFF \
   -DFEATURE_opengl_dynamic=OFF -DFEATURE_dynamicgl=OFF \
   -DQT_FEATURE_openssl=OFF -DQT_FEATURE_schannel=ON \
-  -DQT_FEATURE_sql=OFF -DQT_FEATURE_printsupport=OFF \
+  -DQT_FEATURE_sql=OFF -DQT_FEATURE_printsupport=ON \
   -DQT_FEATURE_system_zlib=OFF -DQT_FEATURE_system_png=OFF \
   -DQT_FEATURE_system_jpeg=OFF -DQT_FEATURE_system_freetype=OFF
 cmake --build "$deps/qt-static-build" --parallel "$jobs"
 cmake --install "$deps/qt-static-build"
+# Use the installed cross SDK's module configurator to inherit its toolchain.
+# https://doc.qt.io/qt-6.8/configure-linux-device.html#configuring-qt
+mkdir -p "$deps/qt-serialport-build"
+(cd "$deps/qt-serialport-build" && "$sdk/bin/qt-configure-module" "$serial_source" \
+  -- -DQT_BUILD_EXAMPLES=OFF -DQT_BUILD_TESTS=OFF)
+cmake --build "$deps/qt-serialport-build" --parallel "$jobs"
+cmake --install "$deps/qt-serialport-build"
 export XASTIR_WINDOWS_QT="$sdk"
 cmake -S "$root" -B "$root/build/windows" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$root/cmake/toolchains/mingw64.cmake" \
@@ -60,6 +73,8 @@ for component in mingw-w64-common gcc-mingw-w64-base gcc-mingw-w64-x86-64-posix-
   fi
 done
 cp -R "$source_dir/LICENSES/." "$package/licenses/Qt/"
+mkdir -p "$package/licenses/QtSerialPort"
+cp -R "$serial_source/LICENSES/." "$package/licenses/QtSerialPort/"
 # Retain upstream attribution metadata and component copyright/license notices.
 python3 - "$source_dir" "$package/licenses/Qt-third-party" <<'PYTHON'
 import json, pathlib, shutil, sys
@@ -89,6 +104,7 @@ cp "$root/qt/examples/stations.json" "$package/examples/"
 cp "$root/qt/windows/README-Windows.txt" "$root/qt/windows/demo.bat" "$package/"
 git -C "$root" rev-parse HEAD > "$package/SOURCE-COMMIT.txt"
 cp "$deps/$archive.sha256" "$package/QT-SOURCE-SHA256.txt"
+cat "$deps/$serial_archive.sha256" >> "$package/QT-SOURCE-SHA256.txt"
 x86_64-w64-mingw32-objdump -p "$package/xastir-qt.exe" \
   | sed -n 's/^[[:space:]]*DLL Name: / /p' > "$package/WINDOWS-IMPORTS.txt"
 if grep -Ei 'Qt6|sqlite|libgcc|libstdc|libwinpthread|libssl|libcrypto' "$package/WINDOWS-IMPORTS.txt"; then

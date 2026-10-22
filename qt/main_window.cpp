@@ -8,6 +8,8 @@
 #include "kml_snapshot.h"
 #include "station_model.h"
 #include "agwpe_client.h"
+#include "kiss_client.h"
+#include <QSet>
 #include "legacy_menus.h"
 #include "message_service.h"
 #include "message_ui.h"
@@ -148,6 +150,25 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   messageUi_->setClients(clients_,aprsis_);
   new StationDetails(this, stations_, mapWidget_, navigator, messageUi_, options.config.callsign);
   auto *interfaces=new InterfaceControl(this,options.config);
+  connect(interfaces, &InterfaceControl::kissStartRequested, this, [this, interfaces](int device) {
+    for (auto *radio : clients_) if (radio->deviceIndex() == device) if (auto *kiss = qobject_cast<KissClient *>(radio)) {
+      kiss->start(); interfaces->reportKissResult(kiss->connected() ? tr("Serial port open; awaiting KISS frames.") : tr("Could not open the saved port; see the interface status.")); return;
+    }
+    interfaces->reportKissResult(tr("Save this KISS interface before opening its port."));
+  });
+  connect(interfaces, &InterfaceControl::kissParametersRequested, this, [this, interfaces](const KissSettings &requested) {
+    for (auto *radio : clients_) if (radio->deviceIndex() == requested.deviceIndex) if (auto *kiss = qobject_cast<KissClient *>(radio)) {
+      QString error;
+      interfaces->reportKissResult(kiss->applyParameters(requested, &error) ? tr("TNC parameters queued to the serial port; KISS does not acknowledge commands.") : error); return;
+    }
+    interfaces->reportKissResult(tr("Save and open this KISS interface before applying parameters."));
+  });
+  connect(interfaces, &InterfaceControl::kissStopRequested, this, [this, interfaces](int device) {
+    for (auto *radio : clients_) if (radio->deviceIndex() == device) if (auto *kiss = qobject_cast<KissClient *>(radio)) {
+      kiss->stop(); interfaces->reportKissResult(tr("Serial port closed; automatic reconnect stopped.")); return;
+    }
+    interfaces->reportKissResult(tr("No saved KISS interface with that device number."));
+  });
   if (auto *configureStation = findChild<QAction *>("PULDNCF004")) {
     disconnect(configureStation, nullptr, this, nullptr);
     configureStation->setProperty("implemented", true);
@@ -286,15 +307,35 @@ void MainWindow::configureRadios(const XastirConfig &config) {
   }
   for(auto *client:clients_) { client->stop(); delete client; } clients_.clear();
   for(auto *label:interfaceLabels_) {statusBar()->removeWidget(label);delete label;} interfaceLabels_.clear();
-  for(const auto &settings:config.agwpe) {
-    auto *client=new AgwpeClient(settings,stations_,this);clients_.append(client); client->setTransmitBlocked(transmitDisabled_);
-    if(history_)connect(client,&AgwpeClient::packetTransmitted,history_,[this,settings](const QByteArray &packet){history_->recordPacket(packet,settings.deviceIndex,0,true);});
-    connect(client, &AgwpeClient::packetTransmitted, monitor_, [this, settings](const QByteArray &packet) { monitor_->recordTransmitted(packet, settings.deviceIndex); });
-    connect(client,&AgwpeClient::packetReceived,monitor_,[this,settings](const QByteArray &packet){monitor_->receive(packet,settings.deviceIndex);if(history_)history_->recordPacket(packet,settings.deviceIndex);});
-    connect(client,&AgwpeClient::packetReceived,messages_,[this,settings](const QByteArray &packet){messages_->receivePacket(packet,settings.deviceIndex);});
-    auto *label=new QLabel(tr("AGWPE stopped"),this);statusBar()->addWidget(label);interfaceLabels_.append(label);
-    connect(client,&AgwpeClient::statusChanged,label,&QLabel::setText);
-    if(settings.connectOnStartup)QTimer::singleShot(0,client,[client]{client->start();});
+  auto attach = [this](RadioInterface *client, bool startup) {
+    clients_.append(client); client->setTransmitBlocked(transmitDisabled_);
+    const int device = client->deviceIndex();
+    connect(client, &RadioInterface::packetTransmitted, monitor_, [this, device](const QByteArray &packet) {
+      monitor_->recordTransmitted(packet, device); if (history_) history_->recordPacket(packet, device, 0, true);
+    });
+    connect(client, &RadioInterface::packetReceived, monitor_, [this, device](const QByteArray &packet) {
+      monitor_->receive(packet, device); if (history_) history_->recordPacket(packet, device);
+      messages_->receivePacket(packet, device);
+    });
+    auto *label = new QLabel(client->transportName() + tr(" stopped"), this);
+    statusBar()->addWidget(label); interfaceLabels_.append(label);
+    connect(client, &RadioInterface::statusChanged, label, &QLabel::setText);
+    if (startup) QTimer::singleShot(0, client, [client] { client->start(); });
+  };
+  QSet<int> ids;
+  for (const auto &settings : config.agwpe) {
+    if (settings.deviceIndex < 0 || settings.deviceIndex > 255 || ids.contains(settings.deviceIndex)) continue;
+    ids.insert(settings.deviceIndex);
+    attach(new AgwpeClient(settings, stations_, this), settings.connectOnStartup);
+  }
+  for (const auto &settings : config.kiss) {
+    QString error;
+    if (ids.contains(settings.deviceIndex) || !KissClient::validate(settings, &error)) {
+      statusBar()->showMessage(tr("Serial KISS configuration rejected: %1").arg(error.isEmpty() ? tr("duplicate device number") : error), 30000);
+      continue;
+    }
+    ids.insert(settings.deviceIndex);
+    attach(new KissClient(settings, stations_, this), settings.connectOnStartup);
   }
   messages_->setTransport([this](const QByteArray &info,int device,const QString &path,QString *error){if(transmitDisabled_){if(error)*error=tr("All transmission is disabled.");return false;}if(device==256){if(aprsis_)return aprsis_->transmit(info,error);if(error)*error=tr("APRS-IS interface is unavailable.");return false;}for(auto *client:clients_)if(client->deviceIndex()==device)return client->transmit(info,path,error);if(error)*error=tr("Radio interface is no longer available.");return false;});
   if(messageUi_)messageUi_->setClients(clients_,aprsis_);

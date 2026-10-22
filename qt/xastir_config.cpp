@@ -1,8 +1,21 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "xastir_config.h"
+#include "kiss_client.h"
 #include <QFile>
 #include <QRegularExpression>
 #include <cmath>
+
+namespace {
+int legacySerialBaud(int value)
+{
+  // Legacy Linux configuration stores speed_t constants, not baud numbers.
+  // BSD configurations using literal rates also pass through this adapter.
+  const QPair<int, int> rates[] = {{7,300},{9,1200},{11,2400},{12,4800},{13,9600},{14,19200},{15,38400},
+    {4097,57600},{4098,115200},{4099,230400}};
+  for (const auto &rate : rates) if (rate.first == value) return rate.second;
+  return value;
+}
+}
 
 bool readXastirConfig(const QString &path, XastirConfig &config, QString *error)
 {
@@ -121,7 +134,32 @@ bool readXastirConfig(const QString &path, XastirConfig &config, QString *error)
   const QRegularExpression devicePattern(QStringLiteral("^DEVICE(\\d+)_TYPE$"));
   for (auto it = values.cbegin(); it != values.cend(); ++it) {
     const auto match = devicePattern.match(it.key());
-    if (!match.hasMatch() || it.value() != "12") continue;
+    if (!match.hasMatch()) continue;
+    if (it.value() == "10" || it.value() == "13") {
+      KissSettings s; s.deviceIndex = match.captured(1).toInt(); s.callsign = result.callsign;
+      const auto prefix = QStringLiteral("DEVICE%1_").arg(s.deviceIndex);
+      s.portName = values.value(prefix + "NAME").trimmed(); bool ok;
+      const int speed = values.value(prefix + "SPEED", "13").toInt(&ok);
+      if (!ok) return fail(QStringLiteral("Invalid legacy serial baud rate for device %1.").arg(s.deviceIndex));
+      s.baudRate = legacySerialBaud(speed);
+      const int channel = values.value(prefix + "RADIO_PORT", "0").toInt(&ok);
+      if (!ok || channel < 0 || channel > 15) return fail(QStringLiteral("Invalid KISS channel for device %1.").arg(s.deviceIndex));
+      s.radioPort = unsigned(channel); s.path = values.value(prefix + "UNPROTO1").trimmed().toUpper();
+      if (values.value(prefix + "STYLE", "0") != "0") return fail(QStringLiteral("Serial KISS requires 8N1 for device %1.").arg(s.deviceIndex));
+      s.connectOnStartup = values.value(prefix + "ONSTARTUP", "0") == "1";
+      s.reconnect = values.value(prefix + "RECONN", "1") == "1";
+      s.transmitEnabled = values.value(prefix + "TXMT", "0") == "1" && !result.transmitDisabled;
+      auto parameter = [&](const char *name, int fallback) {
+        bool valid; const auto value = values.value(prefix + name, QString::number(fallback)).toInt(&valid);
+        return valid ? value : -1;
+      };
+      s.txDelay = parameter("TNC_TXDELAY", 40); s.persistence = parameter("TNC_PERSISTENCE", 63);
+      s.slotTime = parameter("TNC_SLOTTIME", 10); s.txTail = parameter("TNC_TXTAIL", 30);
+      s.fullDuplex = values.value(prefix + "TNC_FULLDUPLEX", "0") == "1";
+      QString why; if (!KissClient::validate(s, &why)) return fail(QStringLiteral("Invalid serial KISS device %1: %2").arg(s.deviceIndex).arg(why));
+      result.kiss.append(s); continue;
+    }
+    if (it.value() != "12") continue;
     AgwpeSettings settings;
     settings.deviceIndex = match.captured(1).toInt();
     const QString prefix = QStringLiteral("DEVICE%1_").arg(settings.deviceIndex);

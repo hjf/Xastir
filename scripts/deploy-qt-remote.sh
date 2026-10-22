@@ -19,9 +19,9 @@ mkdir -p "$work/source"
 # Keep timestamps of unchanged source files so updates can build incrementally.
 rsync -rclp --delete "$staging/" "$work/source/"
 
-if ! pkg-config --exists Qt6Widgets Qt6Network Qt6Test sqlite3 shapelib || ! dpkg-query -W -f='${db:Status-Status}' qt6-wayland 2>/dev/null | grep -qx installed; then
+if ! pkg-config --exists Qt6Widgets Qt6Network Qt6SerialPort Qt6Test sqlite3 shapelib || ! dpkg-query -W -f='${db:Status-Status}' qt6-wayland 2>/dev/null | grep -qx installed; then
     sudo -n apt-get install -y --no-install-recommends build-essential cmake pkg-config python3 \
-        qt6-base-dev qt6-wayland libsqlite3-dev libshp-dev
+        qt6-base-dev qt6-serialport-dev qt6-wayland libsqlite3-dev libshp-dev
 fi
 release="$prefix/releases/${revision:0:12}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 cmake -S "$work/source" -B "$work/build" -DCMAKE_BUILD_TYPE=RelWithDebInfo \

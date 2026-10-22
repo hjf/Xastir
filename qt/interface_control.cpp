@@ -2,6 +2,11 @@
 #include "interface_control.h"
 #include "aprsis_client.h"
 #include "message_service.h"
+#include "kiss_client.h"
+#include <QComboBox>
+#include <QLabel>
+#include <QSerialPortInfo>
+#include <QTabWidget>
 #include <QAction>
 #include <QCheckBox>
 #include <QDialog>
@@ -17,6 +22,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSettings>
+#include <QSet>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -35,8 +41,13 @@ QJsonObject serialize(const XastirConfig &c)
                                {"reconnect", s.reconnect},
                                {"tx", s.transmitEnabled},
                                {"password", QString::fromUtf8(s.password)}});
+  QJsonArray kiss;
+  for (const auto &s : c.kiss) kiss.append(QJsonObject{{"device", s.deviceIndex}, {"port", s.portName}, {"baud", s.baudRate},
+    {"channel", int(s.radioPort)}, {"path", s.path}, {"auto", s.connectOnStartup}, {"reconnect", s.reconnect}, {"tx", s.transmitEnabled},
+    {"txDelay", s.txDelay}, {"persistence", s.persistence}, {"slotTime", s.slotTime}, {"txTail", s.txTail}, {"fullDuplex", s.fullDuplex}});
   QJsonObject result{{"callsign", c.callsign},
                      {"agwpe", devices},
+                     {"kiss", kiss},
                      {"aprsis", QJsonObject{{"host", c.aprsis.host},
                                             {"port", c.aprsis.port},
                                             {"filter", c.aprsis.filter},
@@ -83,6 +94,22 @@ void readQtConfiguration(XastirConfig &c)
     s.password = d["password"].toString().toUtf8();
     c.agwpe.append(s);
   }
+  // Older Qt configurations had no serial section; retain imported serial
+  // settings until the user saves an explicit serial configuration.
+  if (o.contains("kiss")) {
+    c.kiss.clear(); QSet<int> ids; for (const auto &radio : c.agwpe) ids.insert(radio.deviceIndex);
+    for (const auto &v : o["kiss"].toArray()) {
+      const auto d = v.toObject(); KissSettings s; s.callsign = c.callsign;
+      s.deviceIndex = d["device"].toInt(-1); s.portName = d["port"].toString(); s.baudRate = d["baud"].toInt(9600);
+      s.radioPort = unsigned(d["channel"].toInt()); s.path = d["path"].toString();
+      s.connectOnStartup = d["auto"].toBool(); s.reconnect = d["reconnect"].toBool(true); s.transmitEnabled = d["tx"].toBool();
+      s.txDelay = d["txDelay"].toInt(40); s.persistence = d["persistence"].toInt(63); s.slotTime = d["slotTime"].toInt(10);
+      s.txTail = d["txTail"].toInt(30); s.fullDuplex = d["fullDuplex"].toBool();
+      if (ids.contains(s.deviceIndex) || !KissClient::validate(s)) continue;
+      ids.insert(s.deviceIndex); c.kiss.append(s);
+    }
+  }
+  for (auto &s : c.kiss) s.callsign = c.callsign;
   const auto internet = o["aprsis"].toObject();
   c.aprsis.host = internet["host"].toString("rotate.aprs2.net");
   c.aprsis.port = quint16(internet["port"].toInt(14580));
@@ -193,7 +220,15 @@ void InterfaceControl::open()
                                     tr("Path"), tr("Startup"), tr("Reconnect"), tr("Enable TX"),
                                     tr("Password")});
   table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-  layout->addWidget(table);
+  auto *tabs = new QTabWidget(d); layout->addWidget(tabs);
+  auto *agwpeTab = new QWidget(d); auto *agwpeLayout = new QVBoxLayout(agwpeTab);
+  agwpeLayout->addWidget(table); tabs->addTab(agwpeTab, tr("AGWPE"));
+  auto *serialTab = new QWidget(d); auto *serialLayout = new QVBoxLayout(serialTab);
+  auto *kissTable = new QTableWidget(0, 13, serialTab); kissTable->setObjectName("kissInterfaces");
+  kissTable->setHorizontalHeaderLabels({tr("Device"), tr("Serial port"), tr("Baud"), tr("Channel"), tr("Path"), tr("Startup"),
+    tr("Reconnect"), tr("Enable TX"), tr("TX delay ×10ms"), tr("Persistence"), tr("Slot ×10ms"), tr("Tail ×10ms"), tr("Full duplex")});
+  kissTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents); serialLayout->addWidget(kissTable);
+  tabs->addTab(serialTab, tr("Serial KISS"));
   auto append = [table](const AgwpeSettings &s)
   {
     const int row = table->rowCount();
@@ -220,9 +255,9 @@ void InterfaceControl::open()
   for (const auto &s : config_.agwpe)
     append(s);
   auto *add = new QPushButton(tr("Add AGWPE"), d);
-  layout->addWidget(add);
+  agwpeLayout->addWidget(add);
   connect(add, &QPushButton::clicked, d,
-          [table, append]
+          [table, kissTable, append]
           {
             AgwpeSettings s;
             s.deviceIndex = 0;
@@ -231,6 +266,7 @@ void InterfaceControl::open()
               bool used = false;
               for (int i = 0; i < table->rowCount(); ++i)
                 used |= table->item(i, 0)->text().toInt() == s.deviceIndex;
+              for (int i = 0; i < kissTable->rowCount(); ++i) used |= kissTable->item(i, 0)->text().toInt() == s.deviceIndex;
               if (!used)
                 break;
               ++s.deviceIndex;
@@ -239,19 +275,85 @@ void InterfaceControl::open()
             append(s);
           });
   auto *remove = new QPushButton(tr("Remove selected interface"), d);
-  layout->addWidget(remove);
+  agwpeLayout->addWidget(remove);
   connect(remove, &QPushButton::clicked, d,
           [table]
           {
             if (table->currentRow() >= 0)
               table->removeRow(table->currentRow());
           });
+  auto appendKiss = [kissTable](const KissSettings &s) {
+    const int row = kissTable->rowCount(); kissTable->insertRow(row);
+    kissTable->setItem(row, 0, new QTableWidgetItem(QString::number(s.deviceIndex)));
+    auto *port = new QComboBox; port->setEditable(true);
+    for (const auto &info : QSerialPortInfo::availablePorts()) port->addItem(info.systemLocation());
+    port->setCurrentText(s.portName); kissTable->setCellWidget(row, 1, port);
+    auto number = [kissTable, row](int col, int value, int minimum, int maximum) {
+      auto *field = new QSpinBox; field->setRange(minimum, maximum); field->setValue(value); kissTable->setCellWidget(row, col, field);
+    };
+    number(2, s.baudRate, 300, 4000000); number(3, int(s.radioPort), 0, 15);
+    kissTable->setItem(row, 4, new QTableWidgetItem(s.path));
+    for (int col : {5, 6, 7, 12}) {
+      auto *item = new QTableWidgetItem; item->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+      item->setCheckState((col == 5 ? s.connectOnStartup : col == 6 ? s.reconnect : col == 7 ? s.transmitEnabled : s.fullDuplex) ? Qt::Checked : Qt::Unchecked);
+      kissTable->setItem(row, col, item);
+    }
+    number(8, s.txDelay, 0, 255); number(9, s.persistence, 0, 255); number(10, s.slotTime, 0, 255); number(11, s.txTail, 0, 255);
+  };
+  for (const auto &s : config_.kiss) appendKiss(s);
+  auto readKiss = [kissTable, call](int row, QString *error) -> std::optional<KissSettings> {
+    if (row < 0 || row >= kissTable->rowCount()) { if (error) *error = tr("Select a serial KISS interface."); return {}; }
+    KissSettings s; bool ok; s.deviceIndex = kissTable->item(row, 0)->text().toInt(&ok);
+    if (!ok) s.deviceIndex = -1;
+    s.callsign = call->text().trimmed().toUpper();
+    s.portName = qobject_cast<QComboBox *>(kissTable->cellWidget(row, 1))->currentText().trimmed();
+    auto number = [kissTable, row](int col) { return qobject_cast<QSpinBox *>(kissTable->cellWidget(row, col))->value(); };
+    auto checked = [kissTable, row](int col) { return kissTable->item(row, col)->checkState() == Qt::Checked; };
+    s.baudRate = number(2); s.radioPort = unsigned(number(3)); s.path = kissTable->item(row, 4)->text().trimmed().toUpper();
+    s.connectOnStartup = checked(5); s.reconnect = checked(6); s.transmitEnabled = checked(7);
+    s.txDelay = number(8); s.persistence = number(9); s.slotTime = number(10); s.txTail = number(11); s.fullDuplex = checked(12);
+    if (!KissClient::validate(s, error)) return {};
+    return s;
+  };
+  auto *serialButtons = new QHBoxLayout; serialLayout->addLayout(serialButtons);
+  auto *addKiss = new QPushButton(tr("Add KISS")); addKiss->setObjectName("addKissInterface"); serialButtons->addWidget(addKiss);
+  auto *removeKiss = new QPushButton(tr("Remove selected")); removeKiss->setObjectName("removeKissInterface"); serialButtons->addWidget(removeKiss);
+  connect(removeKiss, &QPushButton::clicked, d, [kissTable] { if (kissTable->currentRow() >= 0) kissTable->removeRow(kissTable->currentRow()); });
+  connect(addKiss, &QPushButton::clicked, d, [table, kissTable, appendKiss] {
+    QSet<int> ids;
+    for (auto *list : {table, kissTable}) for (int row = 0; row < list->rowCount(); ++row) ids.insert(list->item(row, 0)->text().toInt());
+    KissSettings s; while (ids.contains(s.deviceIndex)) ++s.deviceIndex;
+    if (s.deviceIndex > 255) return;
+    appendKiss(s); kissTable->selectRow(kissTable->rowCount() - 1);
+  });
+  auto *openKiss = new QPushButton(tr("Open saved port")); openKiss->setObjectName("openKissPort"); serialButtons->addWidget(openKiss);
+  auto *closeKiss = new QPushButton(tr("Close saved port")); closeKiss->setObjectName("closeKissPort"); serialButtons->addWidget(closeKiss);
+  auto *applyKiss = new QPushButton(tr("Apply displayed TNC parameters")); applyKiss->setObjectName("applyKissParameters"); serialButtons->addWidget(applyKiss);
+  auto *serialNote = new QLabel(tr("8N1, no flow control. The TNC must already be in standard KISS mode. Save stores settings; Open uses the saved connection. Apply sends the five displayed TNC parameters immediately, including while receive-only. Cancel does not undo commands already sent. No parameters are sent automatically."));
+  serialNote->setWordWrap(true); serialLayout->addWidget(serialNote);
+  auto *serialStatus = new QLabel; serialStatus->setObjectName("kissActionStatus"); serialStatus->setTextFormat(Qt::PlainText); serialStatus->setWordWrap(true); serialLayout->addWidget(serialStatus);
+  connect(openKiss, &QPushButton::clicked, this, [this, kissTable, serialStatus] {
+    const int row = kissTable->currentRow();
+    if (row < 0) { serialStatus->setText(tr("Select a saved KISS interface.")); return; }
+    bool ok; int id = kissTable->item(row, 0)->text().toInt(&ok);
+    if (ok) emit kissStartRequested(id); else serialStatus->setText(tr("Enter a valid device number."));
+  });
+  connect(closeKiss, &QPushButton::clicked, this, [this, kissTable, serialStatus] {
+    const int row = kissTable->currentRow();
+    if (row < 0) { serialStatus->setText(tr("Select a saved KISS interface.")); return; }
+    bool ok; int id = kissTable->item(row, 0)->text().toInt(&ok);
+    if (ok) emit kissStopRequested(id); else serialStatus->setText(tr("Enter a valid device number."));
+  });
+  connect(applyKiss, &QPushButton::clicked, this, [this, readKiss, kissTable, serialStatus] {
+    QString error; const auto s = readKiss(kissTable->currentRow(), &error);
+    if (!s) serialStatus->setText(error); else emit kissParametersRequested(*s);
+  });
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, d);
   layout->addWidget(buttons);
   connect(buttons, &QDialogButtonBox::rejected, d, &QDialog::reject);
   connect(buttons, &QDialogButtonBox::accepted, d,
           [this, d, call, lat, lon, local, symbol, comment, table, internet, internetHost,
-           internetPort, filter, reconnect, internetTx, passcode]
+           internetPort, filter, reconnect, internetTx, passcode, kissTable, readKiss]
           {
             XastirConfig next = config_;
             next.callsign = call->text().trimmed().toUpper();
@@ -319,6 +421,12 @@ void InterfaceControl::open()
               s.password = qobject_cast<QLineEdit *>(table->cellWidget(row, 8))->text().toUtf8();
               next.agwpe.append(s);
             }
+            next.kiss.clear();
+            for (int row = 0; row < kissTable->rowCount() && error.isEmpty(); ++row) {
+              const auto s = readKiss(row, &error); if (!s) break;
+              if (ids.contains(s->deviceIndex)) { error = tr("Device numbers must be unique across AGWPE and serial KISS."); break; }
+              ids.insert(s->deviceIndex); next.kiss.append(*s);
+            }
             if (!error.isEmpty())
             {
               QMessageBox::warning(d, tr("Interface settings"), error);
@@ -344,4 +452,9 @@ void InterfaceControl::open()
             d->accept();
           });
   d->show();
+}
+
+void InterfaceControl::reportKissResult(const QString &text)
+{
+  if (dialog_) if (auto *label = dialog_->findChild<QLabel *>("kissActionStatus")) label->setText(text);
 }

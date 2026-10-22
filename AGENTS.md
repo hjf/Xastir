@@ -31,8 +31,10 @@ in the original Xastir implementation. The migration work is on branch `qt`.
 
 - The established MVP includes a main window, OSM raster map, APRS station,
   object and item rendering, messaging, and station/interface controls.
-- Serial-port support is outside the current MVP. Use AGWPE for radio/TNC
-  integration; APRS-IS is a separate Internet transport.
+- Radio/TNC integration supports AGWPE and serial standard KISS. Serial GPS,
+  command-mode TNCs and proprietary KISS variants remain outside this iteration.
+  APRS-IS is a separate Internet transport. KISS devices must already be in KISS
+  mode; TNC parameter writes require an explicit user action.
 - Preserve explicit transmit controls. Receive-only interfaces remain
   receive-only until enabled. Disable Transmit ALL applies to messages, ACKs,
   and position beacons. Position transmission has its own control.

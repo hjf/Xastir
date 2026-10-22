@@ -26,6 +26,16 @@ struct AprsisSettings {
   bool transmitEnabled = false;
   QString passcode;
 };
+struct KissSettings {
+  QString portName, callsign, path;
+  int deviceIndex = 0;
+  int baudRate = 9600;
+  unsigned radioPort = 0;
+  bool connectOnStartup = false, reconnect = true, transmitEnabled = false;
+  int txDelay = 40, persistence = 63, slotTime = 10, txTail = 30;
+  bool fullDuplex = false;
+};
+Q_DECLARE_METATYPE(KissSettings)
 struct XastirConfig {
   PresentationSettings presentation;
   TimingSettings timing;
@@ -42,6 +52,7 @@ struct XastirConfig {
   QString callsign;
   std::optional<Station> localStation;
   QList<AgwpeSettings> agwpe;
+  QList<KissSettings> kiss;
   QString autoReplyText;
   std::optional<Selections> selection;
   std::optional<What_to_display> display;

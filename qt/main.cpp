@@ -36,6 +36,7 @@ int main(int argc, char *argv[])
     {"no-config", "Do not import the legacy configuration."},
     {"agwpe-tx", "Enable message transmission on configured AGWPE devices for this run."},
     {"no-agwpe", "Import station settings without connecting to AGWPE."},
+    {"no-kiss", "Import station settings without opening serial KISS ports."},
     {"no-history", "Disable history storage and startup restoration for this run."},
     {"history-db", "Override the SQLite history database path.", "file"},
     {"stations", "Load a JSON snapshot of decoded APRS stations.", "file"}
@@ -106,6 +107,7 @@ int main(int argc, char *argv[])
   if (parser.isSet("agwpe-tx"))
     for (auto &settings : options.config.agwpe) settings.transmitEnabled = true;
   if (parser.isSet("no-agwpe")) options.config.agwpe.clear();
+  if (parser.isSet("no-kiss")) options.config.kiss.clear();
   options.historyEnabled = !parser.isSet("no-history");
   options.history.path = parser.value("history-db");
   MainWindow window(options);

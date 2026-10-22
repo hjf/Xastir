@@ -10,7 +10,7 @@ set(CMAKE_AUTOMOC ON)
 
 if(XASTIR_BUILD_QT)
   enable_language(CXX)
-  find_package(Qt6 6.4 REQUIRED COMPONENTS Widgets Network PrintSupport)
+  find_package(Qt6 6.4 REQUIRED COMPONENTS Widgets Network PrintSupport SerialPort)
   set(XASTIR_SQLITE_AMALGAMATION "" CACHE FILEPATH "Optional sqlite3.c source for static packaging")
   if(XASTIR_SQLITE_AMALGAMATION)
     get_filename_component(sqlite_include "${XASTIR_SQLITE_AMALGAMATION}" DIRECTORY)

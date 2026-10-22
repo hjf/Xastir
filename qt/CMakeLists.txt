@@ -35,6 +35,7 @@ add_library(xastir_qt_ui STATIC
   xastir_config.cpp xastir_config.h
   aprs_decoder.cpp aprs_decoder.h
   radio_interface.cpp radio_interface.h
+  kiss_client.cpp kiss_client.h
   agwpe_client.cpp agwpe_client.h
 )
 qt_add_resources(xastir_qt_ui aprs_symbols
@@ -57,7 +58,7 @@ if(SHAPELIB_INCLUDE_DIR AND SHAPELIB_LIBRARY AND XASTIR_WITH_SHAPELIB)
 endif()
 qt_add_resources(xastir_qt_ui offline_maps PREFIX "/maps" BASE "${PROJECT_SOURCE_DIR}" FILES ${offline_map_files})
 target_include_directories(xastir_qt_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(xastir_qt_ui PUBLIC Qt6::Widgets Qt6::Network Qt6::PrintSupport SQLite::SQLite3 xastir_core)
+target_link_libraries(xastir_qt_ui PUBLIC Qt6::Widgets Qt6::Network Qt6::PrintSupport Qt6::SerialPort SQLite::SQLite3 xastir_core)
 if(MSVC)
   target_compile_options(xastir_qt_ui PRIVATE /W4)
 else()
@@ -75,6 +76,12 @@ install(TARGETS xastir-qt RUNTIME DESTINATION bin BUNDLE DESTINATION .)
 
 if(BUILD_TESTING)
   find_package(Qt6 6.4 REQUIRED COMPONENTS Test)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    qt_add_executable(test_kiss tests/test_kiss.cpp)
+    target_link_libraries(test_kiss PRIVATE xastir_qt_ui Qt6::Test util)
+    add_test(NAME kiss COMMAND test_kiss)
+    set_tests_properties(kiss PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45)
+  endif()
   qt_add_executable(test_bulletins tests/test_bulletins.cpp)
   target_link_libraries(test_bulletins PRIVATE xastir_qt_ui Qt6::Test)
   set_target_properties(test_bulletins PROPERTIES WIN32_EXECUTABLE FALSE)

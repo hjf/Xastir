@@ -12,8 +12,12 @@ class InterfaceControl : public QObject
 public:
   InterfaceControl(QMainWindow *, XastirConfig config);
   void open();
+  void reportKissResult(const QString &);
 signals:
   void configurationChanged(const XastirConfig &config);
+  void kissStartRequested(int device);
+  void kissStopRequested(int device);
+  void kissParametersRequested(const KissSettings &settings);
 
 private:
   QMainWindow *window_;
