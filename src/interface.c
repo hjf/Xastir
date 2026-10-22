@@ -77,6 +77,8 @@
 #include "xa_config.h"
 //#include "maps.h"
 #include "interface.h"
+#include "ax25_core.h"
+#include "kiss_core.h"
 #include "aprs_position.h"
 #include "globals.h"
 #include "util.h"
@@ -2016,241 +2018,10 @@ int fetch32bits(unsigned char *str)
 
 char *process_ax25_packet(unsigned char *bp, unsigned int len, char *buffer, int buffer_size)
 {
-  int i,j;
-  unsigned int  l;
-  unsigned int  digis;
-  unsigned char source[10];
-  unsigned char dest[10];
-  unsigned char digi[10][10];
-  unsigned char digi_h[10];
-  unsigned int  ssid;
-  unsigned char message[513];
-
-  if ( (bp == NULL) || (buffer == NULL) )
-  {
-    return(NULL);
-  }
-
-  /* clear buffer */
-  buffer[0] = '\0';
-
-  if (*bp != (unsigned char)0)
-  {
-    return(NULL);  /* not a DATA packet */
-  }
-
-  // We have a KISS packet here, so we know that the first
-  // character is a flag character.  Skip over it.
-  bp++;
-  len--;
-
-  // Check the length to make sure that we don't have an empty
-  // packet.
-  if (!bp || !len)
-  {
-    return(NULL);
-  }
-
-  // Check for minimum KISS frame bytes.
-  if (len < 15)
-  {
-    return(NULL);
-  }
-
-  if (bp[1] & 1) /* Compressed FlexNet Header */
-  {
-    return(NULL);
-  }
-
-  /* Destination of frame */
-  j = 0;
-  for(i = 0; i < 6; i++)
-  {
-    if ((bp[i] &0xfe) != (unsigned char)0x40)
-    {
-      dest[j++] = bp[i] >> 1;
-    }
-  }
-  ssid = (unsigned int)( (bp[6] & 0x1e) >> 1 );
-  if (ssid != 0)
-  {
-    dest[j++] = '-';
-    if ((ssid / 10) != 0)
-    {
-      dest[j++] = '1';
-    }
-    ssid = (ssid % 10);
-    dest[j++] = (unsigned char)ssid + (unsigned char)'0';
-  }
-  dest[j] = '\0';
-  bp += 7;
-  len -= 7;
-
-  /* Source of frame */
-  j = 0;
-  for(i = 0; i < 6; i++)
-  {
-    if ((bp[i] &0xfe) != (unsigned char)0x40)
-    {
-      source[j++] = bp[i] >> 1;
-    }
-  }
-  ssid = (unsigned int)( (bp[6] & 0x1e) >> 1 );
-  if (ssid != 0)
-  {
-    source[j++] = '-';
-    if ((ssid / 10) != 0)
-    {
-      source[j++] = '1';
-    }
-
-    source[j++] = (unsigned char)(ssid % 10) + (unsigned char)'0';
-    // source[j++] = (unsigned char)ssid + (unsigned char)'0';
-  }
-  source[j] = '\0';
-  bp += 7;
-  len -= 7;
-
-  // by KJ5O - test for proper extraction of source call and ssid
-  // fprintf(stderr, "|KJ5O-test| %s-%d\n", source, ssid);
-
-  /* Digipeaters */
-  digis = 0;
-  while ((!(bp[-1] & 1)) && (len >= 7))
-  {
-    /* Digi of frame */
-    if (digis != 10)
-    {
-      j = 0;
-      for (i = 0; i < 6; i++)
-      {
-        if ((bp[i] &0xfe) != (unsigned char)0x40)
-        {
-          digi[digis][j++] = bp[i] >> 1;
-        }
-      }
-      digi_h[digis] = (bp[6] & 0x80);
-      ssid = (unsigned int)( (bp[6] & 0x1e) >> 1 );
-      if (ssid != 0)
-      {
-        digi[digis][j++] = '-';
-        if ((ssid / 10) != 0)
-        {
-          digi[digis][j++] = '1';
-        }
-        ssid = (ssid % 10);
-        digi[digis][j++] = (unsigned char)ssid + (unsigned char)'0';
-      }
-      digi[digis][j] = '\0';
-      digis++;
-    }
-    bp += 7;
-    len -= 7;
-  }
-  if (!len)
-  {
-    return(NULL);
-  }
-
-  /* We are now at the primitive bit */
-  i = (int)(*bp++);
-  len--;
-
-  /* strip the poll-bit from the primitive */
-  i = i & (~0x10);
-
-  /* return if this is not an UI frame (= 0x03) */
-  if(i != 0x03)
-  {
-    return(NULL);
-  }
-
-  /* no data left */
-  if (!len)
-  {
-    return(NULL);
-  }
-
-  if(*bp != (unsigned char)0xF0)     // APRS PID
-  {
-    // We _don't_ have an APRS packet
-    return(NULL);
-  }
-
-  // We have what looks like a valid KISS-frame containing APRS
-  // protocol data.
-
-  bp++;
-  len--;
-  l = 0;
-  while (len)
-  {
-    i = (int)(*bp++);
-    if ((i != (int)'\n') && (i != (int)'\r'))
-    {
-      if (l < 512)
-      {
-        message[l++] = (unsigned char)i;
-      }
-    }
-    len--;
-  }
-  /* add terminating '\0' to allow handling as a string */
-  message[l] = '\0';
-
-  xastir_snprintf(buffer,
-                  buffer_size,
-                  "%s",
-                  source);
-
-  /*
-   * if there are no digis or the first digi has not handled the
-   * packet then this is directly from the source, mark it with
-   * a "*" in that case
-   */
-
-  strncat(buffer, ">", buffer_size - 1 - strlen(buffer));
-
-  /* destination is at the beginning of the chain, because it is  */
-  /* needed so MIC-E packets can be decoded correctly. */
-  /* this may be changed in the future but for now leave it here -FG */
-  strncat(buffer, (char *)dest, buffer_size - 1 - strlen(buffer));
-
-  for(i = 0; i < (int)digis; i++)
-  {
-    strncat(buffer, ",", buffer_size - 1 - strlen(buffer));
-    strncat(buffer, (char *)digi[i], buffer_size - 1 - strlen(buffer));
-    /* at the last digi always put a '*' when h_bit is set */
-    if (i == (int)(digis - 1))
-    {
-      if (digi_h[i] == (unsigned char)0x80)
-      {
-        /* this digi must have transmitted the packet */
-        strncat(buffer, "*", buffer_size - 1 - strlen(buffer));
-      }
-    }
-    else
-    {
-      if (digi_h[i] == (unsigned char)0x80)
-      {
-        /* only put a '*' when the next digi has no h_bit */
-        if (digi_h[i + 1] != (unsigned char)0x80)
-        {
-          /* this digi must have transmitted the packet */
-          strncat(buffer, "*", buffer_size - 1 - strlen(buffer));
-        }
-      }
-    }
-  }
-  strncat(buffer, ":", buffer_size - 1 - strlen(buffer));
-
-  //Copy into only the free space in buffer.
-  strncat( buffer, (char *)message, MAX_DEVICE_BUFFER - 1 - strlen(buffer));
-
-  // And null-terminate it to make sure.
-  buffer[MAX_DEVICE_BUFFER - 1] = '\0';
-
-  return(buffer);
+  if (!buffer || buffer_size < 1) return NULL;
+  buffer[0] = 0;
+  if (!bp || len < 1 || bp[0] != 0) return NULL;
+  return xastir_ax25_to_tnc2(bp + 1, len - 1, (unsigned char *)buffer, (size_t)buffer_size) ? buffer : NULL;
 }
 
 
@@ -3816,76 +3587,10 @@ int net_detach(int port)
 //
 void fix_up_callsign(unsigned char *data, int data_size)
 {
-  unsigned char new_call[8] = "       ";  // Start with seven spaces
-  int ssid = 0;
-  int i;
-  int j = 0;
-  int digipeated_flag = 0;
-
-
-  // Check whether we've digipeated through this callsign yet.
-  if (strstr((const char *)data,"*") != 0)
-  {
-    digipeated_flag++;
-  }
-
-  // Change callsign to upper-case and pad out to six places with
-  // space characters.
-  for (i = 0; i < (int)strlen((const char *)data); i++)
-  {
-    data[i] = toupper(data[i]);
-
-    if (data[i] == '-')     // Stop at '-'
-    {
-      break;
-    }
-    else if (data[i] == '*')
-    {
-    }
-    else
-    {
-      new_call[j++] = data[i];
-    }
-  }
-  new_call[7] = '\0';
-
-  // Handle SSID.  'i' should now be pointing at a dash or at the
-  // terminating zero character.
-  if ( (i < (int)strlen((const char *)data)) && (data[i++] == '-') )     // We might have an SSID
-  {
-    if (data[i] != '\0')
-    {
-      ssid = atoi((const char *)&data[i]);
-    }
-  }
-
-  if (ssid >= 0 && ssid <= 15)
-  {
-    new_call[6] = ssid | 0x30;  // Set 2 reserved bits
-  }
-  else    // Whacko SSID.  Set it to zero
-  {
-    new_call[6] = 0x30;     // Set 2 reserved bits
-  }
-
-  if (digipeated_flag)
-  {
-    new_call[6] = new_call[6] | 0x40; // Set the 'H' bit
-  }
-
-  // Shift each byte one bit to the left
-  for (i = 0; i < 7; i++)
-  {
-    new_call[i] = new_call[i] << 1;
-    new_call[i] = new_call[i] & 0xfe;
-  }
-
-  // Write over the top of the input string with the newly
-  // formatted callsign
-  xastir_snprintf((char *)data,
-                  data_size,
-                  "%s",
-                  new_call);
+  unsigned char address[7];
+  if (!data || data_size < 8) return;
+  if (!xastir_ax25_encode_address((char *)data, 0, 1, address)) { data[0] = 0; return; }
+  memcpy(data, address, 7); data[7] = 0;
 }
 
 
@@ -3964,182 +3669,13 @@ void port_write_binary(int port, unsigned char *data, int length)
 //
 void send_ax25_frame(int port, char *source, char *destination, char *path, char *data)
 {
-  unsigned char temp_source[15];
-  unsigned char temp_dest[15];
-  unsigned char temp[15];
-  unsigned char control[2], pid[2];
-  unsigned char transmit_txt[MAX_LINE_SIZE*2];
-  unsigned char transmit_txt2[MAX_LINE_SIZE*2];
-  unsigned char c;
-  int i, j;
-  int erd;
-  int write_in_pos_hold;
-
-
-  // Check whether transmits are disabled globally
-  if (transmit_disable)
-  {
-    return;
-  }
-
-  // Check whether transmit has been enabled for this interface.
-  // If not, get out while the gettin's good.
-  if (devices[port].transmit_data != 1)
-  {
-    return;
-  }
-
-  transmit_txt[0] = '\0';
-
-  // Format the destination callsign
-  xastir_snprintf((char *)temp_dest,
-                  sizeof(temp_dest),
-                  "%s",
-                  destination);
-  fix_up_callsign(temp_dest, sizeof(temp_dest));
-  xastir_snprintf((char *)transmit_txt,
-                  sizeof(transmit_txt),
-                  "%s",
-                  temp_dest);
-
-  // Format the source callsign
-  xastir_snprintf((char *)temp_source,
-                  sizeof(temp_source),
-                  "%s",
-                  source);
-  fix_up_callsign(temp_source, sizeof(temp_source));
-  strncat((char *)transmit_txt,
-          (char *)temp_source,
-          sizeof(transmit_txt) - 1 - strlen((char *)transmit_txt));
-
-  // Break up the path into individual callsigns and send them one
-  // by one to fix_up_callsign().  If we get passed an empty path,
-  // we merely skip this section and no path gets added to
-  // "transmit_txt".
-  j = 0;
-  temp[0] = '\0'; // Start with empty path
-  if ( (path != NULL) && (strlen(path) != 0) )
-  {
-    while (path[j] != '\0')
-    {
-      i = 0;
-      while ( (path[j] != ',') && (path[j] != '\0') )
-      {
-        temp[i++] = path[j++];
-      }
-      temp[i] = '\0';
-
-      if (path[j] == ',')     // Skip over comma
-      {
-        j++;
-      }
-
-      fix_up_callsign(temp, sizeof(temp));
-      strncat((char *)transmit_txt,
-              (char *)temp,
-              sizeof(transmit_txt) - 1 - strlen((char *)transmit_txt));
-    }
-  }
-
-  // Set the end-of-address bit on the last callsign in the
-  // address field
-  transmit_txt[strlen((const char *)transmit_txt) - 1] |= 0x01;
-
-  // Add the Control byte
-  control[0] = 0x03;
-  control[1] = '\0';
-  strncat((char *)transmit_txt,
-          (char *)control,
-          sizeof(transmit_txt) - 1 - strlen((char *)transmit_txt));
-
-  // Add the PID byte
-  pid[0] = 0xf0;
-  pid[1] = '\0';
-  strncat((char *)transmit_txt,
-          (char *)pid,
-          sizeof(transmit_txt) - 1 - strlen((char *)transmit_txt));
-
-  // Append the information chars
-  strncat((char *)transmit_txt,
-          data,
-          sizeof(transmit_txt) - 1 - strlen((char *)transmit_txt));
-
-  // Add the KISS framing characters and do the proper escapes.
-  j = 0;
-  transmit_txt2[j++] = KISS_FEND;
-
-  // Note:  This byte is where different interfaces would be
-  // specified:
-  transmit_txt2[j++] = 0x00;
-
-  for (i = 0; i < (int)strlen((const char *)transmit_txt); i++)
-  {
-    c = transmit_txt[i];
-    if (c == KISS_FEND)
-    {
-      transmit_txt2[j++] = KISS_FESC;
-      transmit_txt2[j++] = KISS_TFEND;
-    }
-    else if (c == KISS_FESC)
-    {
-      transmit_txt2[j++] = KISS_FESC;
-      transmit_txt2[j++] = KISS_TFESC;
-    }
-    else
-    {
-      transmit_txt2[j++] = c;
-    }
-  }
-  transmit_txt2[j++] = KISS_FEND;
-
-  // Terminate the string, but don't increment the 'j' counter.
-  // We don't want to send the NULL byte out the KISS interface,
-  // just make sure the string is terminated in all cases.
-  //
-  transmit_txt2[j] = '\0';
-
-  //-------------------------------------------------------------------
-  // Had to snag code from port_write_string() below because our string
-  // needs to have 0x00 chars inside it.  port_write_string() can't
-  // handle that case.  It's a good thing the transmit queue stuff
-  // could handle it.
-  //-------------------------------------------------------------------
-
-  erd = 0;
-
-  if (begin_critical_section(&port_data[port].write_lock, "interface.c:send_ax25_frame(1)" ) > 0)
-  {
-    fprintf(stderr,"write_lock, Port = %d\n", port);
-  }
-
-  write_in_pos_hold = port_data[port].write_in_pos;
-
-  for (i = 0; i < j && !erd; i++)
-  {
-    port_data[port].device_write_buffer[port_data[port].write_in_pos++] = transmit_txt2[i];
-    if (port_data[port].write_in_pos >= MAX_DEVICE_BUFFER)
-    {
-      port_data[port].write_in_pos = 0;
-    }
-
-    if (port_data[port].write_in_pos == port_data[port].write_out_pos)
-    {
-      if (debug_level & 2)
-      {
-        fprintf(stderr,"Port %d Buffer overrun\n",port);
-      }
-
-      /* clear this restore original write_in pos and dump this string */
-      port_data[port].write_in_pos = write_in_pos_hold;
-      port_data[port].errors++;
-      erd = 1;
-    }
-  }
-
-  if (end_critical_section(&port_data[port].write_lock, "interface.c:send_ax25_frame(2)" ) > 0)
-  {
-    fprintf(stderr,"write_lock, Port = %d\n", port);
-  }
+  if (transmit_disable || devices[port].transmit_data != 1 || !data) return;
+  unsigned char frame[XASTIR_AX25_MAX_FRAME], encoded[XASTIR_KISS_MAX_ENCODED];
+  size_t length = xastir_ax25_build(source, destination, path, (unsigned char *)data, strlen(data), frame, sizeof(frame));
+  int radio = atoi(devices[port].radio_port);
+  if (!length || radio < 0 || radio > 15) return;
+  length = xastir_kiss_encode((unsigned)radio, 0, frame, length, encoded, sizeof(encoded));
+  if (length) port_write_binary(port, encoded, (int)length);
 }
 
 
@@ -4161,91 +3697,11 @@ void send_ax25_frame(int port, char *source, char *destination, char *path, char
 //
 void send_kiss_config(int port, int device, int command, int value)
 {
-  unsigned char transmit_txt[MAX_LINE_SIZE+1];
-  int i, j;
-  int erd;
-  int write_in_pos_hold;
-
-
-  if (device < 0 || device > 15)
-  {
-    fprintf(stderr,"send_kiss_config: out-of-range value for device\n");
-    return;
-  }
-
-  if (command < 1 || command > 6)
-  {
-    fprintf(stderr,"send_kiss_config: out-of-range value for command\n");
-    return;
-  }
-
-  if (value < 0 || value > 255)
-  {
-    fprintf(stderr,"send_kiss_config: out-of-range value for value\n");
-    return;
-  }
-
-  // Add the KISS framing characters and do the proper escapes.
-  j = 0;
-  transmit_txt[j++] = KISS_FEND;
-
-  transmit_txt[j++] = (device << 4) | (command & 0x0f);
-
-  transmit_txt[j++] = value & 0xff;
-
-  transmit_txt[j++] = KISS_FEND;
-
-  // Terminate the string, but don't increment the 'j' counter.
-  // We don't want to send the NULL byte out the KISS interface,
-  // just make sure the string is terminated in all cases.
-  //
-  transmit_txt[j] = '\0';
-
-
-
-
-  //-------------------------------------------------------------------
-  // Had to snag code from port_write_string() below because our string
-  // needs to have 0x00 chars inside it.  port_write_string() can't
-  // handle that case.  It's a good thing the transmit queue stuff
-  // could handle it.
-  //-------------------------------------------------------------------
-
-  erd = 0;
-
-  if (begin_critical_section(&port_data[port].write_lock, "interface.c:send_kiss_config(1)" ) > 0)
-  {
-    fprintf(stderr,"write_lock, Port = %d\n", port);
-  }
-
-  write_in_pos_hold = port_data[port].write_in_pos;
-
-  for (i = 0; i < j && !erd; i++)
-  {
-    port_data[port].device_write_buffer[port_data[port].write_in_pos++] = transmit_txt[i];
-    if (port_data[port].write_in_pos >= MAX_DEVICE_BUFFER)
-    {
-      port_data[port].write_in_pos = 0;
-    }
-
-    if (port_data[port].write_in_pos == port_data[port].write_out_pos)
-    {
-      if (debug_level & 2)
-      {
-        fprintf(stderr,"Port %d Buffer overrun\n",port);
-      }
-
-      /* clear this restore original write_in pos and dump this string */
-      port_data[port].write_in_pos = write_in_pos_hold;
-      port_data[port].errors++;
-      erd = 1;
-    }
-  }
-
-  if (end_critical_section(&port_data[port].write_lock, "interface.c:send_kiss_config(2)" ) > 0)
-  {
-    fprintf(stderr,"write_lock, Port = %d\n", port);
-  }
+  unsigned char encoded[8], parameter;
+  if (device < 0 || device > 15 || command < 1 || command > 6 || value < 0 || value > 255) return;
+  parameter = (unsigned char)value;
+  size_t length = xastir_kiss_encode((unsigned)device, (unsigned)command, &parameter, 1, encoded, sizeof(encoded));
+  if (length) port_write_binary(port, encoded, (int)length);
 }
 
 
@@ -4349,6 +3805,8 @@ void port_write_string(int port, char *data)
 
 void port_read(int port)
 {
+  XastirKissDecoder kiss;
+  xastir_kiss_init(&kiss);
   unsigned char cin;
   unsigned char buffer[MAX_DEVICE_BUFFER];    // Only used for AX.25 packets
   int i;
@@ -4440,71 +3898,20 @@ void port_read(int port)
           {
 
 
-            // Do special KISS packet processing here.
-            // We save the last character in
-            // port_data[port].channel2, as it is
-            // otherwise only used for AX.25 ports.
-
-            if ( (port_data[port].device_type == DEVICE_SERIAL_KISS_TNC)
-                 || (port_data[port].device_type == DEVICE_SERIAL_MKISS_TNC) )
+            if (port_data[port].device_type == DEVICE_SERIAL_KISS_TNC
+                || port_data[port].device_type == DEVICE_SERIAL_MKISS_TNC)
             {
-
-
-              if (port_data[port].channel2 == KISS_FESC)   // Frame Escape char
+              XastirKissFrame frame;
+              if (xastir_kiss_decode_byte(&kiss, cin, &frame) == 1 && frame.command == 0
+                  && frame.port == (unsigned)atoi(devices[port].radio_port)
+                  && frame.length > 0 && frame.length < MAX_LINE_SIZE)
               {
-                if (cin == KISS_TFEND)   // Transposed Frame End char
-                {
-
-                  // Save this char for next time
-                  // around
-                  port_data[port].channel2 = cin;
-
-                  cin = KISS_FEND;
-                }
-                else if (cin == KISS_TFESC)   // Transposed Frame Escape char
-                {
-
-                  // Save this char for next time
-                  // around
-                  port_data[port].channel2 = cin;
-
-                  cin = KISS_FESC;
-                }
-                else
-                {
-                  port_data[port].channel2 = cin;
-                }
+                unsigned char copy[MAX_LINE_SIZE];
+                memcpy(copy, frame.data, frame.length); copy[frame.length] = 0;
+                channel_data(port, copy, (int)frame.length);
               }
-              else if (port_data[port].channel2 == KISS_FEND)   // Frame End char
-              {
-                // Frame start or frame end.  Drop
-                // the next character which should
-                // either be another frame end or a
-                // type byte.
-
-                // Note this "type" byte is where it specifies which KISS interface
-                // the packet came from.  We may want to use this later for
-                // multi-drop KISS or other types of KISS protocols.
-
-                // Save this char for next time
-                // around
-                port_data[port].channel2 = cin;
-                skip++;
-              }
-              else if (cin == KISS_FESC)   // Frame Escape char
-              {
-                port_data[port].channel2 = cin;
-                skip++;
-              }
-              else
-              {
-                port_data[port].channel2 = cin;
-              }
-            }   // End of first special KISS processing
-
-
-
-
+              continue;
+            }
 
             // AGWPE
             // Process AGWPE packets here.  Massage the frames so that they look

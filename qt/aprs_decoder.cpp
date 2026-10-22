@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include "ax25_core.h"
 #include "aprs_decoder.h"
 #include <cmath>
 #include "aprs_position.h"
@@ -137,31 +138,9 @@ std::optional<AprsStatusUpdate> decodeAprsStatus(const QByteArray &packet, int d
 
 QByteArray decodeAgwpeAx25(const QByteArray &payload)
 {
-  int offset = 1;
-  QList<QByteArray> addresses;
-  bool last = false;
-  while (!last && addresses.size() < 10) {
-    if (offset + 7 > payload.size()) return {};
-    QByteArray name;
-    for (int i = 0; i < 6; ++i) {
-      const unsigned char encoded = payload[offset + i];
-      if (encoded & 1) return {};
-      const char c = char(encoded >> 1);
-      if (!(c == ' ' || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))) return {};
-      name += c;
-    }
-    name = name.trimmed();
-    if (name.isEmpty() || name.contains(' ')) return {};
-    const unsigned char flags = payload[offset + 6];
-    const int ssid = (flags >> 1) & 15;
-    if (ssid) name += '-' + QByteArray::number(ssid);
-    if (addresses.size() >= 2 && (flags & 0x80)) name += '*';
-    addresses.append(name); last = flags & 1; offset += 7;
-  }
-  if (!last || addresses.size() < 2 || offset + 2 > payload.size()
-      || (static_cast<unsigned char>(payload[offset]) & 0xef) != 3
-      || static_cast<unsigned char>(payload[offset + 1]) != 0xf0) return {};
-  QByteArray packet = addresses[1] + '>' + addresses[0];
-  for (int i = 2; i < addresses.size(); ++i) packet += ',' + addresses[i];
-  return packet + ':' + payload.mid(offset + 2);
+  if (payload.isEmpty()) return {};
+  QByteArray packet(XASTIR_AX25_MAX_FRAME + 128, Qt::Uninitialized);
+  const auto size = xastir_ax25_to_tnc2(reinterpret_cast<const unsigned char *>(payload.constData() + 1),
+    size_t(payload.size() - 1), reinterpret_cast<unsigned char *>(packet.data()), size_t(packet.size()));
+  packet.resize(qsizetype(size)); return packet;
 }

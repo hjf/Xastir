@@ -10,6 +10,7 @@ DIST_SUBDIRS = rtree
 EXTRA_DIST=icon.xbm
 
 XASTIR_SRC = \
+    ax25_core.c ax25_core.h kiss_core.c kiss_core.h \
     object_core.c object_core.h \
     message_core.c message_core.h \
     message_store.c message_store.h \

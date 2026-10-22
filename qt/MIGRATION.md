@@ -1,6 +1,6 @@
 # Qt migration status
 
-Reviewed on 2026-10-19 on branch `qt`. This is a current implementation overview;
+Reviewed on 2026-10-22 on branch `qt`. This is a current implementation overview;
 the README also contains historical milestone descriptions.
 
 ## Implemented boundaries
@@ -310,6 +310,22 @@ receive-only rejection, ownership conflicts, repeat/kill transitions and restart
 without transmission. The existing 119 object utility and 42 object constructor
 compatibility cases still pass. Moving/compressed/area/DF object creation,
 automatic adoption and APRS-IS object transmission remain unfinished.
+
+## Shared KISS and AX.25 codecs
+
+The serial migration starts with frontend-independent codecs extracted from
+`interface.c` and `db.c`. AX.25 address and UI-frame assembly/decoding now use
+explicit binary lengths and bounds checks. AGWPE raw reception and the legacy
+adapters call the same C decoder. KISS framing retains command/channel metadata,
+preserves escaped bytes and CR/LF payloads, bounds frame storage, and recovers
+at a delimiter after invalid escapes or oversize frames. Data and configuration
+commands share one escaping routine, including their command/channel byte.
+Legacy transmit adapters now use the configured channel instead of hardcoded 0.
+
+C fixtures verify actual AX.25 bytes, SSIDs and repeated-hop flags, truncated and
+invalid frames, all 256 byte values on all 16 KISS channels, configuration values
+192/219, frame limits and malformed-stream recovery. The Qt serial adapter and
+configuration integration are the next increment.
 
 ## Remaining migration work
 

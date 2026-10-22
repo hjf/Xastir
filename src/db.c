@@ -1,3 +1,4 @@
+#include "ax25_core.h"
 #include "station_view.h"
 /*
  *
@@ -12070,67 +12071,8 @@ void extract_TNC_text(char *info)
 //
 int decode_ax25_address(char *string, char *callsign, int asterisk)
 {
-  int i,j;
-  char ssid;
-  char t;
-  int more = 0;
-  int digipeated = 0;
-
-  // Shift each of the six callsign characters right one bit to
-  // convert to ASCII.  We also get rid of the extra spaces here.
-  j = 0;
-  for (i = 0; i < 6; i++)
-  {
-    t = ((unsigned char)string[i] >> 1) & 0x7f;
-    if (t != ' ')
-    {
-      callsign[j++] = t;
-    }
-  }
-
-  // Snag out the SSID byte to play with.  We need more than just
-  // the 4 SSID bits out of it.
-  ssid = (unsigned char)string[6];
-
-  // Check the digipeat bit
-  if ( (ssid & 0x80) && asterisk)
-  {
-    digipeated++;  // Has been digipeated
-  }
-
-  // Check whether it is the end of the address field
-  if ( !(ssid & 0x01) )
-  {
-    more++;  // More callsigns to come after this one
-  }
-
-  // Snag the four SSID bits
-  ssid = (ssid >> 1) & 0x0f;
-
-  // Construct the SSID number and add it to the end of the
-  // callsign if non-zero.  If it's zero we don't add it.
-  if (ssid)
-  {
-    callsign[j++] = '-';
-    if (ssid > 9)
-    {
-      callsign[j++] = '1';
-    }
-    ssid = ssid % 10;
-    callsign[j++] = '0' + ssid;
-  }
-
-  // Add an asterisk if the packet has been digipeated through
-  // this callsign
-  if (digipeated)
-  {
-    callsign[j++] = '*';
-  }
-
-  // Terminate the string
-  callsign[j] = '\0';
-
-  return(more);
+  if (!xastir_ax25_decode_address((const unsigned char *)string, asterisk, callsign, 11)) { callsign[0] = 0; return 0; }
+  return !(string[6] & 1);
 }
 
 
@@ -12201,137 +12143,11 @@ int decode_ax25_address(char *string, char *callsign, int asterisk)
 //
 int decode_ax25_header(unsigned char *data_string, int *length)
 {
-  char temp[20];
-  char result[MAX_LINE_SIZE+100];
-  char dest[15];
-  int i, ptr;
-  char callsign[15];
-  char more;
-  char num_digis = 0;
-
-
-  // Do we have a string at all?
-  if (data_string == NULL)
-  {
-    return(0);
-  }
-
-  // Drop the packet if it is too long.  Note that for KISS packets
-  // we can't use strlen() as there can be 0x00 bytes in the
-  // data itself.
-  if (*length > 1024)
-  {
-    data_string[0] = '\0';
-    *length = 0;
-    return(0);
-  }
-
-  // Start with an empty string for the result
-  result[0] = '\0';
-
-  ptr = 0;
-
-  // Process the destination address
-  for (i = 0; i < 7; i++)
-  {
-    temp[i] = data_string[ptr++];
-  }
-  temp[7] = '\0';
-  more = decode_ax25_address(temp, callsign, 0); // No asterisk
-  xastir_snprintf(dest,sizeof(dest),"%s",callsign);
-
-  // Process the source address
-  for (i = 0; i < 7; i++)
-  {
-    temp[i] = data_string[ptr++];
-  }
-  temp[7] = '\0';
-  more = decode_ax25_address(temp, callsign, 0); // No asterisk
-
-  // Store the two callsigns we have into "result" in the correct
-  // order
-  xastir_snprintf(result,sizeof(result),"%s>%s",callsign,dest);
-
-  // Process the digipeater addresses (if any)
-  num_digis = 0;
-  while (more && num_digis < 8)
-  {
-    for (i = 0; i < 7; i++)
-    {
-      temp[i] = data_string[ptr++];
-    }
-    temp[7] = '\0';
-
-    more = decode_ax25_address(temp, callsign, 1); // Add asterisk
-    strncat(result,
-            ",",
-            sizeof(result) - 1 - strlen(result));
-    strncat(result,
-            callsign,
-            sizeof(result) - 1 - strlen(result));
-    num_digis++;
-  }
-
-  strncat(result,
-          ":",
-          sizeof(result) - 1 - strlen(result));
-
-
-  // Check the Control and PID bytes and toss packets that are
-  // AX.25 connect/disconnect or information packets.  We only
-  // want to process UI packets in Xastir.
-
-
-  // Control byte should be 0x03 (UI Frame).  Strip the poll-bit
-  // from the PID byte before doing the comparison.
-  if ( (data_string[ptr++] & (~0x10)) != 0x03)
-  {
-    return(0);
-  }
-
-
-  // PID byte should be 0xf0 (normal AX.25 text)
-  if (data_string[ptr++] != 0xf0)
-  {
-    return(0);
-  }
-
-
-  // WE7U:  We get multiple concatenated KISS packets sometimes.  Look
-  // for that here and flag when it happens (so we know about it and
-  // can fix it someplace earlier in the process).  Correct the
-  // current packet so we don't get the extra garbage tacked onto the
-  // end.
-  for (i = ptr; i < *length; i++)
-  {
-    if (data_string[i] == KISS_FEND)
-    {
-      fprintf(stderr,"***Found concatenated KISS packets:***\n");
-      data_string[i] = '\0';    // Truncate the string
-      break;
-    }
-  }
-
-  // Add the Info field to the decoded header info
-  strncat(result,
-          (char *)(&data_string[ptr]),
-          sizeof(result) - 1 - strlen(result));
-
-  // Copy the result onto the top of the input data.  Note that
-  // the length can sometimes be longer than the input string, so
-  // we can't just use the "length" variable here or we'll
-  // truncate our string.  Make sure the data_string variable is
-  // MAX_LINE_SIZE or bigger.
-  //
-  memcpy(data_string, result, MAX_LINE_SIZE);
-  data_string[MAX_LINE_SIZE-1] = '\0';  // Terminate string
-
-  // Write out the new length
-  *length = strlen(result);
-
-  //fprintf(stderr,"%s\n",data_string);
-
-  return(1);
+  unsigned char converted[MAX_LINE_SIZE];
+  if (!data_string || !length || *length < 0) return 0;
+  size_t size = xastir_ax25_to_tnc2(data_string, (size_t)*length, converted, sizeof(converted));
+  if (!size) { data_string[0] = 0; *length = 0; return 0; }
+  memcpy(data_string, converted, size + 1); *length = (int)size; return 1;
 }
 
 
