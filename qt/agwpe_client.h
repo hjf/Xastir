@@ -1,27 +1,30 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "xastir_config.h"
+#include "radio_interface.h"
 #include <QPointer>
 #include <QTcpSocket>
 #include <QTimer>
 
 // AGWPE raw AX.25 monitor with explicitly enabled unproto message transmission.
-class AgwpeClient : public QObject {
+class AgwpeClient : public RadioInterface {
   Q_OBJECT
 public:
   AgwpeClient(AgwpeSettings settings, StationModel *stations, QObject *parent = nullptr);
   ~AgwpeClient() override;
-  void start();
-  void stop();
-  bool transmit(const QByteArray &information, const QString &path = QString(), QString *error = nullptr);
+  void start() override;
+  void stop() override;
+  bool transmit(const QByteArray &information, const QString &path = QString(), QString *error = nullptr) override;
   const AgwpeSettings &settings() const { return settings_; }
-  bool connected() const { return socket_.state() == QAbstractSocket::ConnectedState; }
+  bool connected() const override { return socket_.state() == QAbstractSocket::ConnectedState; }
+  int deviceIndex() const override { return settings_.deviceIndex; }
+  QString callsign() const override { return settings_.callsign; }
+  QString path() const override { return settings_.path; }
+  bool transmitEnabled() const override { return settings_.transmitEnabled; }
+  QString transportName() const override { return QStringLiteral("AGWPE"); }
+  QString description() const override;
   quint64 receivedPackets() const { return packets_; }
   quint64 positionUpdates() const { return updates_; }
-signals:
-  void statusChanged(const QString &status);
-  void packetTransmitted(const QByteArray &packet);
-  void packetReceived(const QByteArray &packet);
 private:
   void connectToServer();
   void fail(const QString &reason);

@@ -324,7 +324,9 @@ Legacy transmit adapters now use the configured channel instead of hardcoded 0.
 
 C fixtures verify actual AX.25 bytes, SSIDs and repeated-hop flags, truncated and
 invalid frames, all 256 byte values on all 16 KISS channels, configuration values
-192/219, frame limits and malformed-stream recovery. The Qt serial adapter and
+192/219, frame limits and malformed-stream recovery. The Qt radio adapters now share a transport interface and C-backed outgoing
+AX.25 validation. Messages, beacons and objects select radios through that
+interface, retaining device IDs and explicit RF routes. The serial adapter and
 configuration integration are the next increment.
 
 ## Remaining migration work

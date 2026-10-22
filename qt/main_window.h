@@ -13,7 +13,7 @@ class MessageService;
 class BeaconControl;
 class AprsisClient;
 class QLabel;
-class MessageUi; class PacketMonitor; class AgwpeClient; class StationMenu;
+class MessageUi; class PacketMonitor; class RadioInterface; class StationMenu;
 
 struct ApplicationOptions
 {
@@ -48,12 +48,12 @@ private:
   bool fullscreenAltHeld_ = false;
   void revealFullscreenBars(bool reveal);
   HistoryStore *history_ = nullptr;
-  void configureAgwpe(const XastirConfig &config);
+  void configureRadios(const XastirConfig &config);
   BeaconControl *beacons_ = nullptr;
   bool transmitDisabled_ = false;
   AprsisClient *aprsis_ = nullptr;
   QLabel *aprsisLabel_ = nullptr;
-  QList<AgwpeClient *> clients_;
+  QList<RadioInterface *> clients_;
   QList<QLabel *> interfaceLabels_;
   MessageUi *messageUi_ = nullptr;
   PacketMonitor *monitor_;

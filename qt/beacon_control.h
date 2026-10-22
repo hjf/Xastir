@@ -5,7 +5,7 @@
 #include <QPointer>
 #include <QTimer>
 #include <functional>
-class AgwpeClient;
+class RadioInterface;
 class QMainWindow;
 class QDialog;
 class QLabel;
@@ -14,7 +14,7 @@ class BeaconControl : public QObject
 {
   Q_OBJECT
 public:
-  using Interfaces = std::function<QList<AgwpeClient *>()>;
+  using Interfaces = std::function<QList<RadioInterface *>()>;
   BeaconControl(QMainWindow *, XastirConfig, Interfaces);
   void configure(const XastirConfig &);
   void setIntervalSeconds(int seconds);

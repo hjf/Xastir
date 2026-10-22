@@ -140,9 +140,9 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   beacons_=new BeaconControl(this,options.config,[this]{return clients_;});
   new ConfigurationUi(this, mapWidget_, monitor_, beacons_, snapshots, logs, options.config);
   transmitDisabled_=beacons_->transmitDisabled();
-  connect(beacons_,&BeaconControl::transmitDisabledChanged,this,[this](bool disabled){transmitDisabled_=disabled;});
+  connect(beacons_,&BeaconControl::transmitDisabledChanged,this,[this](bool disabled){transmitDisabled_=disabled; for(auto *client:clients_) client->setTransmitBlocked(disabled);});
   connect(beacons_,&BeaconControl::statusChanged,statusBar(),[this](const QString &message){statusBar()->showMessage(message,10000);});
-  configureAgwpe(options.config);
+  configureRadios(options.config);
   auto *objects = new ObjectControl(this, stations_, mapWidget_, beacons_, options.config, [this] { return clients_; });
   messageUi_ = new MessageUi(this, messages_, clients_, options.config.autoReplyText);
   messageUi_->setClients(clients_,aprsis_);
@@ -176,7 +176,7 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
     if(config.callsign!=messages_->callsign()) return; // Identity changes take effect on restart.
     localStation_=config.localStation; if(localStation_) {localStation_->local=true;stations_->upsert(*localStation_);}
     stationMenu_->setLocalStation(localStation_);
-    configureAgwpe(config);
+    configureRadios(config);
     beacons_->configure(config);
     objects->configure(config);
   });
@@ -272,7 +272,7 @@ bool MainWindow::loadStations(const QString &path, QString *error, bool centerOn
   return true;
 }
 
-void MainWindow::configureAgwpe(const XastirConfig &config) {
+void MainWindow::configureRadios(const XastirConfig &config) {
   if(aprsis_) {aprsis_->stop();delete aprsis_;aprsis_=nullptr;}
   if(aprsisLabel_){statusBar()->removeWidget(aprsisLabel_);delete aprsisLabel_;aprsisLabel_=nullptr;}
   if(config.aprsis.enabled){
@@ -287,7 +287,7 @@ void MainWindow::configureAgwpe(const XastirConfig &config) {
   for(auto *client:clients_) { client->stop(); delete client; } clients_.clear();
   for(auto *label:interfaceLabels_) {statusBar()->removeWidget(label);delete label;} interfaceLabels_.clear();
   for(const auto &settings:config.agwpe) {
-    auto *client=new AgwpeClient(settings,stations_,this);clients_.append(client);
+    auto *client=new AgwpeClient(settings,stations_,this);clients_.append(client); client->setTransmitBlocked(transmitDisabled_);
     if(history_)connect(client,&AgwpeClient::packetTransmitted,history_,[this,settings](const QByteArray &packet){history_->recordPacket(packet,settings.deviceIndex,0,true);});
     connect(client, &AgwpeClient::packetTransmitted, monitor_, [this, settings](const QByteArray &packet) { monitor_->recordTransmitted(packet, settings.deviceIndex); });
     connect(client,&AgwpeClient::packetReceived,monitor_,[this,settings](const QByteArray &packet){monitor_->receive(packet,settings.deviceIndex);if(history_)history_->recordPacket(packet,settings.deviceIndex);});
@@ -296,6 +296,6 @@ void MainWindow::configureAgwpe(const XastirConfig &config) {
     connect(client,&AgwpeClient::statusChanged,label,&QLabel::setText);
     if(settings.connectOnStartup)QTimer::singleShot(0,client,[client]{client->start();});
   }
-  messages_->setTransport([this](const QByteArray &info,int device,const QString &path,QString *error){if(transmitDisabled_){if(error)*error=tr("All transmission is disabled.");return false;}if(device==256){if(aprsis_)return aprsis_->transmit(info,error);if(error)*error=tr("APRS-IS interface is unavailable.");return false;}for(auto *client:clients_)if(client->settings().deviceIndex==device)return client->transmit(info,path,error);if(error)*error=tr("AGWPE interface is no longer available.");return false;});
+  messages_->setTransport([this](const QByteArray &info,int device,const QString &path,QString *error){if(transmitDisabled_){if(error)*error=tr("All transmission is disabled.");return false;}if(device==256){if(aprsis_)return aprsis_->transmit(info,error);if(error)*error=tr("APRS-IS interface is unavailable.");return false;}for(auto *client:clients_)if(client->deviceIndex()==device)return client->transmit(info,path,error);if(error)*error=tr("Radio interface is no longer available.");return false;});
   if(messageUi_)messageUi_->setClients(clients_,aprsis_);
 }

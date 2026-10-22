@@ -34,6 +34,7 @@ add_library(xastir_qt_ui STATIC
   station_model.cpp station_model.h
   xastir_config.cpp xastir_config.h
   aprs_decoder.cpp aprs_decoder.h
+  radio_interface.cpp radio_interface.h
   agwpe_client.cpp agwpe_client.h
 )
 qt_add_resources(xastir_qt_ui aprs_symbols

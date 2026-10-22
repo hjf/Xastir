@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "beacon_control.h"
-#include "agwpe_client.h"
+#include "radio_interface.h"
 #include "aprs_position.h"
 #include <QAction>
 #include <QCheckBox>
@@ -118,9 +118,9 @@ bool BeaconControl::sendNow(int device, QString *error)
   if (info.isEmpty())
     return false;
   for (auto *client : interfaces_())
-    if (client->settings().deviceIndex == device)
+    if (client->deviceIndex() == device)
     {
-      if (client->settings().callsign != config_.callsign)
+      if (client->callsign() != config_.callsign)
         return reject(tr("Station callsign does not match the selected radio interface."));
       if (!client->transmit(info, QString(), error))
         return false;
@@ -129,7 +129,7 @@ bool BeaconControl::sendNow(int device, QString *error)
       emit statusChanged(tr("Position beacon queued on device %1.").arg(device));
       return true;
     }
-  return reject(tr("Select an available AGWPE interface."));
+  return reject(tr("Select an available radio interface."));
 }
 void BeaconControl::schedule()
 {
@@ -149,14 +149,7 @@ void BeaconControl::refresh()
   devices_->clear();
   for (auto *client : interfaces_())
   {
-    const auto &s = client->settings();
-    devices_->addItem(tr("Device %1 — %2:%3, radio %4%5")
-                          .arg(s.deviceIndex)
-                          .arg(s.host)
-                          .arg(s.port)
-                          .arg(s.radioPort + 1)
-                          .arg(s.transmitEnabled ? QString() : tr(" (receive only)")),
-                      s.deviceIndex);
+    devices_->addItem(client->description(), client->deviceIndex());
   }
   const int index = devices_->findData(selected);
   if (index >= 0)
@@ -210,7 +203,7 @@ void BeaconControl::open()
             {
               if (periodic->isChecked() && devices_->currentIndex() < 0)
               {
-                status_->setText(tr("Configure an AGWPE interface first."));
+                status_->setText(tr("Configure a radio interface first."));
                 return;
               }
               periodic_ = periodic->isChecked();

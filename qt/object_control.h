@@ -10,7 +10,7 @@ class QMainWindow;
 class QDialog;
 class MapWidget;
 class BeaconControl;
-class AgwpeClient;
+class RadioInterface;
 class QTableWidget;
 struct OwnedEntity {
   QString name, owner, comment, path;
@@ -24,7 +24,7 @@ class ObjectControl : public QObject
 {
   Q_OBJECT
 public:
-  using Interfaces = std::function<QList<AgwpeClient *>()>;
+  using Interfaces = std::function<QList<RadioInterface *>()>;
   ObjectControl(QMainWindow *, StationModel *, MapWidget *, BeaconControl *, XastirConfig, Interfaces);
   void configure(const XastirConfig &);
   QList<OwnedEntity> definitions() const;

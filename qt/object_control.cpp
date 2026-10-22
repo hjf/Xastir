@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "object_control.h"
-#include "agwpe_client.h"
+#include "radio_interface.h"
 #include "aprs_decoder.h"
 #include "beacon_control.h"
 #include "map_widget.h"
@@ -141,14 +141,14 @@ bool ObjectControl::transmit(State &state, const OwnedEntity &d, QString *error)
   if (d.owner != config_.callsign) return reject(error, tr("The object owner differs from the configured callsign."));
   if (!collision(d, error)) { state.schedule = {}; return false; }
   const auto packet = information(d, error); if (packet.isEmpty()) return false;
-  for (auto *client : interfaces_()) if (client->settings().deviceIndex == d.device) {
-    if (client->settings().callsign != d.owner) return reject(error, tr("Station callsign does not match the selected interface."));
+  for (auto *client : interfaces_()) if (client->deviceIndex() == d.device) {
+    if (client->callsign() != d.owner) return reject(error, tr("Station callsign does not match the selected interface."));
     if (!client->transmit(packet, d.path.isEmpty() ? QString() : d.path, error)) return false;
-    state.status = tr("Queued to AGWPE device %1; RF delivery unconfirmed").arg(d.device);
+    state.status = tr("Queued to %1 device %2; RF delivery unconfirmed").arg(client->transportName()).arg(d.device);
     if (state.schedule.remaining) xastir_object_schedule_accepted(&state.schedule, clock_(), d.maximumSeconds, QRandomGenerator::global()->bounded(1001u));
     emit statusChanged(d.name + ": " + state.status); return true;
   }
-  return reject(error, tr("Select an available AGWPE interface; objects/items currently use radio transport."));
+  return reject(error, tr("Select an available radio interface."));
 }
 bool ObjectControl::sendNow(const QString &name, QString *error)
 {
@@ -252,8 +252,8 @@ void ObjectControl::edit(const QString &name)
   auto *table = new QLineEdit(QString(value.table), d); table->setObjectName("objectSymbolTable"); table->setMaxLength(1); form->addRow(tr("Symbol table /, \\, or overlay"), table);
   auto *symbol = new QLineEdit(QString(value.symbol), d); symbol->setObjectName("objectSymbol"); symbol->setMaxLength(1); form->addRow(tr("Symbol character"), symbol);
   auto *comment = new QLineEdit(value.comment, d); comment->setObjectName("objectComment"); comment->setMaxLength(43); form->addRow(tr("Comment (ASCII)"), comment);
-  auto *device = new QComboBox(d); device->setObjectName("objectDevice"); device->addItem(tr("Select AGWPE interface"), -1);
-  for (auto *client : interfaces_()) { const auto &s = client->settings(); device->addItem(tr("Device %1 — %2:%3%4").arg(s.deviceIndex).arg(s.host).arg(s.port).arg(s.transmitEnabled ? QString() : tr(" (receive only)")), s.deviceIndex); }
+  auto *device = new QComboBox(d); device->setObjectName("objectDevice"); device->addItem(tr("Select radio interface"), -1);
+  for (auto *client : interfaces_()) device->addItem(client->description(), client->deviceIndex());
   const int index = device->findData(value.device); if (index >= 0) device->setCurrentIndex(index); form->addRow(tr("Transmit via"), device);
   auto *path = new QLineEdit(value.path, d); path->setObjectName("objectPath"); path->setPlaceholderText(tr("Blank uses the selected interface's path")); form->addRow(tr("RF path"), path);
   auto *interval = new QSpinBox(d); interval->setObjectName("objectInterval"); interval->setRange(20, 86400); interval->setValue(value.maximumSeconds); interval->setSuffix(tr(" seconds")); form->addRow(tr("Maximum repeat interval"), interval);

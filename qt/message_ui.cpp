@@ -69,7 +69,7 @@ QDialog *makeDialog(QMainWindow *window, const QString &title, const char *name)
 }
 }
 MessageUi::MessageUi(QMainWindow *window, MessageService *service,
-                     QList<AgwpeClient *> clients, const QString &legacyAutoReply)
+                     QList<RadioInterface *> clients, const QString &legacyAutoReply)
   : QObject(window), window_(window), service_(service)
 {
   new BulletinUi(window_, service_);
@@ -125,21 +125,19 @@ void MessageUi::saveSettings()
 void MessageUi::populateInterfaces(QComboBox *combo)
 {
   for (const auto &client : clients_) if (client) {
-    const auto &s = client->settings();
-    combo->addItem(tr("Device %1 — %2:%3 (radio %4)%5").arg(s.deviceIndex).arg(s.host).arg(s.port)
-      .arg(s.radioPort + 1).arg(s.transmitEnabled ? QString() : tr(" — receive only")), s.deviceIndex);
+    combo->addItem(client->description(), client->deviceIndex());
   }
   if(internet_)combo->addItem(tr("APRS-IS%1").arg(internet_->transmitEnabled()?QString():tr(" — receive only")),256);
-  if (combo->count() == 0) combo->addItem(tr("No AGWPE interfaces configured"), -1);
+  if (combo->count() == 0) combo->addItem(tr("No radio interfaces configured"), -1);
   for (int i = 0; i < combo->count(); ++i) {
-    for (const auto &client : clients_) if (client && client->settings().deviceIndex == combo->itemData(i).toInt()
-        && client->settings().transmitEnabled) { combo->setCurrentIndex(i); return; }
+    for (const auto &client : clients_) if (client && client->deviceIndex() == combo->itemData(i).toInt()
+        && client->transmitEnabled()) { combo->setCurrentIndex(i); return; }
   }
 }
-AgwpeClient *MessageUi::selectedClient(QComboBox *combo) const
+RadioInterface *MessageUi::selectedClient(QComboBox *combo) const
 {
   for (const auto &client : clients_)
-    if (client && client->settings().deviceIndex == combo->currentData().toInt()) return client;
+    if (client && client->deviceIndex() == combo->currentData().toInt()) return client;
   return nullptr;
 }
 void MessageUi::openConversation(QString peer, bool group)
@@ -205,17 +203,17 @@ void MessageUi::openConversation(QString peer, bool group)
     }
     path->setEnabled(true);
     auto *client = selectedClient(interfaces);
-    const bool enabled = client && client->settings().transmitEnabled;
+    const bool enabled = client && client->transmitEnabled();
     if (enabled && !client->connected()) client->start();
     send->setEnabled(enabled);
-    connection->setText(!client ? tr("Configure an AGWPE interface to send messages.")
+    connection->setText(!client ? tr("Configure a radio interface to send messages.")
       : !enabled ? tr("Transmission is disabled for this interface.")
       : client->connected() ? tr("Connected — ready to send.") : tr("Disconnected — messages will wait for reconnection."));
-    if (resetPath) path->setText(client ? client->settings().path : QString());
+    if (resetPath) path->setText(client ? client->path() : QString());
   };
   connect(interfaces, &QComboBox::currentIndexChanged, dialog, [updateConnection] { updateConnection(true); });
   for (const auto &client : clients_) if (client)
-    connect(client, &AgwpeClient::statusChanged, dialog, [updateConnection] { updateConnection(false); });
+    connect(client, &RadioInterface::statusChanged, dialog, [updateConnection] { updateConnection(false); });
   if(internet_)connect(internet_,&AprsisClient::statusChanged,dialog,[updateConnection]{updateConnection(false);});
   updateConnection(true);
   connect(send, &QPushButton::clicked, dialog, [this, dialog, recipient, interfaces, text, path, group] {
@@ -302,9 +300,9 @@ void MessageUi::query(const QByteArray &queryText, const QString &title)
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, dialog);
   auto *send = buttons->addButton(tr("Send Query"), QDialogButtonBox::ActionRole); layout->addWidget(buttons);
   auto update = [this, send, interfaces] { auto *client = selectedClient(interfaces);
-    if (client && client->settings().transmitEnabled && !client->connected()) client->start();
-    send->setEnabled(client && client->settings().transmitEnabled && client->connected()); };
-  for (const auto &client : clients_) if (client) connect(client, &AgwpeClient::statusChanged, dialog, update);
+    if (client && client->transmitEnabled() && !client->connected()) client->start();
+    send->setEnabled(client && client->transmitEnabled() && client->connected()); };
+  for (const auto &client : clients_) if (client) connect(client, &RadioInterface::statusChanged, dialog, update);
   connect(interfaces, &QComboBox::currentIndexChanged, dialog, update); update();
   connect(send, &QPushButton::clicked, dialog, [this, dialog, interfaces, queryText] {
     QString error;
@@ -314,7 +312,7 @@ void MessageUi::query(const QByteArray &queryText, const QString &title)
   connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close); dialog->show();
 }
 
-void MessageUi::setClients(const QList<AgwpeClient *> &clients, AprsisClient *internet) {
+void MessageUi::setClients(const QList<RadioInterface *> &clients, AprsisClient *internet) {
   internet_=internet;
   for(const auto &dialog:conversations_) if(dialog) dialog->close();
   conversations_.clear(); if(pending_) pending_->close();

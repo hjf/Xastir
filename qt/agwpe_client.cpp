@@ -8,7 +8,7 @@
 #include <QRegularExpression>
 
 AgwpeClient::AgwpeClient(AgwpeSettings settings, StationModel *stations, QObject *parent)
-  : QObject(parent), settings_(std::move(settings)), stations_(stations)
+  : RadioInterface(parent), settings_(std::move(settings)), stations_(stations)
 {
   socket_.setProxy(QNetworkProxy::NoProxy);
   retry_.setSingleShot(true); timeout_.setSingleShot(true);
@@ -100,23 +100,15 @@ void AgwpeClient::receive()
 bool AgwpeClient::transmit(const QByteArray &information, const QString &path, QString *error)
 {
   auto reject = [error](const QString &reason) { if (error) *error = reason; return false; };
-  if (!settings_.transmitEnabled) return reject(tr("Transmission is disabled for this AGWPE device."));
-  if (!connected()) return reject(tr("AGWPE is not connected."));
-  const QRegularExpression callPattern(QStringLiteral("^[A-Z0-9]{1,6}(-([0-9]|1[0-5]))?$"));
-  const QString from = settings_.callsign.toUpper();
-  if (!callPattern.match(from).hasMatch()) return reject(tr("Configure a valid AX.25 station callsign."));
-  if (information.isEmpty() || information.size() > 256 || information.contains('\r')
-      || information.contains('\n') || information.contains('\0'))
-    return reject(tr("Invalid APRS information field."));
   const QString route = (path.isNull() ? settings_.path : path).trimmed().toUpper();
+  const auto ax25 = prepareFrame(information, route, error); if (ax25.isEmpty()) return false;
+  const QString from = settings_.callsign.toUpper();
   const QStringList digis = route.isEmpty() ? QStringList{} : route.split(',');
-  if (digis.size() > 8) return reject(tr("An AX.25 path may contain at most eight digipeaters."));
   QByteArray payload;
   if (!digis.isEmpty()) {
     payload += char(digis.size());
     for (const auto &digi : digis) {
       const QString call = digi.trimmed();
-      if (!callPattern.match(call).hasMatch()) return reject(tr("Invalid digipeater in path."));
       payload += call.toLatin1().leftJustified(10, '\0');
     }
   }
@@ -132,8 +124,11 @@ bool AgwpeClient::transmit(const QByteArray &information, const QString &path, Q
   if (socket_.bytesToWrite() > 65536) return reject(tr("AGWPE transmit buffer is full."));
   if (socket_.write(frame + payload) != frame.size() + payload.size())
     return reject(tr("Cannot queue the packet to AGWPE."));
-  QByteArray packet=source+">"+destination;
-  for(const auto &digi:digis)packet+=','+digi.trimmed().toLatin1();
-  emit packetTransmitted(packet+':'+information);
+  emit packetTransmitted(tnc2(ax25));
   return true;
+}
+QString AgwpeClient::description() const
+{
+  return tr("Device %1 — AGWPE %2:%3, radio %4%5").arg(settings_.deviceIndex).arg(settings_.host).arg(settings_.port)
+    .arg(settings_.radioPort + 1).arg(settings_.transmitEnabled ? QString() : tr(" (receive only)"));
 }
