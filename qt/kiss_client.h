@@ -13,10 +13,13 @@ public:
   KissClient(KissSettings, StationModel *, QObject *parent = nullptr);
   ~KissClient() override;
   static bool validate(const KissSettings &, QString *error = nullptr);
+  static bool parseEntrySequence(const QString &, QByteArray *bytes, QString *error = nullptr);
   const KissSettings &settings() const { return settings_; }
   void start() override;
   void stop() override;
-  bool connected() const override { return serial_.isOpen(); }
+  bool connected() const override { return serial_.isOpen() && phase_ == Phase::Ready; }
+  bool portOpen() const { return serial_.isOpen(); }
+  bool initializing() const { return phase_ == Phase::EnteringKiss || phase_ == Phase::WaitingForKiss; }
   int deviceIndex() const override { return settings_.deviceIndex; }
   QString callsign() const override { return settings_.callsign; }
   QString path() const override { return settings_.path; }
@@ -37,11 +40,16 @@ private:
   void receive();
   void pump();
   void discardOutput();
+  void finishInitialization();
+  enum class Phase { Closed, EnteringKiss, WaitingForKiss, Ready };
   struct Output { QByteArray bytes; qsizetype offset = 0; };
   KissSettings settings_;
   QPointer<StationModel> stations_;
   QSerialPort serial_;
-  QTimer retry_, reader_, writer_;
+  QTimer retry_, reader_, writer_, entryDelay_;
+  Phase phase_ = Phase::Closed;
+  QByteArray entryBytes_;
+  qsizetype entryOffset_ = 0;
   XastirKissDecoder decoder_{};
   QList<Output> output_;
   qsizetype queuedBytes_ = 0;

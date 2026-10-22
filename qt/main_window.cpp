@@ -152,7 +152,9 @@ MainWindow::MainWindow(const ApplicationOptions &options, QWidget *parent)
   auto *interfaces=new InterfaceControl(this,options.config);
   connect(interfaces, &InterfaceControl::kissStartRequested, this, [this, interfaces](int device) {
     for (auto *radio : clients_) if (radio->deviceIndex() == device) if (auto *kiss = qobject_cast<KissClient *>(radio)) {
-      kiss->start(); interfaces->reportKissResult(kiss->connected() ? tr("Serial port open; awaiting KISS frames.") : tr("Could not open the saved port; see the interface status.")); return;
+      kiss->start();
+      interfaces->reportKissResult(kiss->initializing() ? tr("Serial port open; entering KISS mode. See the interface status.") :
+        kiss->connected() ? tr("Serial port open; awaiting KISS frames.") : tr("Could not open the saved port; see the interface status.")); return;
     }
     interfaces->reportKissResult(tr("Save this KISS interface before opening its port."));
   });

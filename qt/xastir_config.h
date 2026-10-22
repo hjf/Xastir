@@ -34,6 +34,9 @@ struct KissSettings {
   bool connectOnStartup = false, reconnect = true, transmitEnabled = false;
   int txDelay = 40, persistence = 63, slotTime = 10, txTail = 30;
   bool fullDuplex = false;
+  bool initializeKiss = false;
+  QString kissEntrySequence = QStringLiteral("\\x1b@k\\r");
+  int kissEntryDelayMs = 100;
 };
 Q_DECLARE_METATYPE(KissSettings)
 struct XastirConfig {

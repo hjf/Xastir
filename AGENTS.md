@@ -33,8 +33,9 @@ in the original Xastir implementation. The migration work is on branch `qt`.
   object and item rendering, messaging, and station/interface controls.
 - Radio/TNC integration supports AGWPE and serial standard KISS. Serial GPS,
   command-mode TNCs and proprietary KISS variants remain outside this iteration.
-  APRS-IS is a separate Internet transport. KISS devices must already be in KISS
-  mode; TNC parameter writes require an explicit user action.
+  APRS-IS is a separate Internet transport. Optional KISS mode entry sends a
+  configured sequence on open/reconnect before allowing KISS traffic; it must
+  remain opt-in. TNC parameter writes require an explicit user action.
 - Preserve explicit transmit controls. Receive-only interfaces remain
   receive-only until enabled. Disable Transmit ALL applies to messages, ACKs,
   and position beacons. Position transmission has its own control.

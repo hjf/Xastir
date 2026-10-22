@@ -14,6 +14,39 @@ QByteArray encode(unsigned port, unsigned command, const QByteArray &data)
   bytes.resize(qsizetype(size)); return bytes;
 }
 }
+bool KissClient::parseEntrySequence(const QString &text, QByteArray *bytes, QString *error)
+{
+  auto reject = [error] { if (error) *error = tr("KISS entry must contain 1–256 bytes. Use printable ASCII and escapes: \\r, \\n, \\t, \\\\ or \\xHH."); return false; };
+  if (text.isEmpty() || text.size() > 1024) return reject();
+  QByteArray result;
+  for (qsizetype i = 0; i < text.size(); ++i) {
+    ushort c = text[i].unicode();
+    if (c == '\\') {
+      if (++i == text.size()) return reject();
+      const auto escape = text[i].unicode();
+      if (escape == 'r') c = '\r';
+      else if (escape == 'n') c = '\n';
+      else if (escape == 't') c = '\t';
+      else if (escape == '\\') c = '\\';
+      else if (escape == 'x') {
+        if (i + 2 >= text.size()) return reject();
+        auto hex = [](ushort digit) -> int {
+          if (digit >= '0' && digit <= '9') return digit - '0';
+          if (digit >= 'a' && digit <= 'f') return digit - 'a' + 10;
+          if (digit >= 'A' && digit <= 'F') return digit - 'A' + 10;
+          return -1;
+        };
+        const int high = hex(text[i+1].unicode()), low = hex(text[i+2].unicode());
+        if (high < 0 || low < 0) return reject();
+        c = ushort(high * 16 + low); i += 2;
+      } else return reject();
+    } else if (c < 32 || c > 126) return reject();
+    result += char(c);
+    if (result.size() > 256) return reject();
+  }
+  if (bytes) *bytes = result;
+  return true;
+}
 bool KissClient::validate(const KissSettings &s, QString *error)
 {
   auto reject = [error](const QString &text) { if (error) *error = text; return false; };
@@ -27,12 +60,18 @@ bool KissClient::validate(const KissSettings &s, QString *error)
     return reject(tr("Invalid RF path for serial KISS."));
   for (int value : {s.txDelay, s.persistence, s.slotTime, s.txTail})
     if (value < 0 || value > 255) return reject(tr("KISS parameters must be between 0 and 255."));
+  if (s.kissEntryDelayMs < 0 || s.kissEntryDelayMs > 10000)
+    return reject(tr("KISS entry wait must be between 0 and 10,000 ms."));
+  if (s.initializeKiss && !parseEntrySequence(s.kissEntrySequence, nullptr, error)) return false;
   return true;
 }
 KissClient::KissClient(KissSettings settings, StationModel *stations, QObject *parent)
   : RadioInterface(parent), settings_(std::move(settings)), stations_(stations)
 {
   serial_.setReadBufferSize(64 * 1024); retry_.setSingleShot(true); reader_.setSingleShot(true); writer_.setSingleShot(true);
+  entryDelay_.setSingleShot(true);
+  entryDelay_.setTimerType(Qt::PreciseTimer);
+  connect(&entryDelay_, &QTimer::timeout, this, &KissClient::finishInitialization);
   xastir_kiss_init(&decoder_);
   connect(&retry_, &QTimer::timeout, this, &KissClient::open);
   connect(&reader_, &QTimer::timeout, this, &KissClient::receive);
@@ -51,7 +90,7 @@ QString KissClient::description() const
 }
 void KissClient::start()
 {
-  if (connected()) return;
+  if (portOpen()) return;
   retry_.stop();
   running_ = true; retryDelay_ = 2000; open();
 }
@@ -70,7 +109,25 @@ void KissClient::open()
   }
   if (!opened) { fail(serial_.errorString()); return; }
   retryDelay_ = 2000;
+  if (settings_.initializeKiss) {
+    parseEntrySequence(settings_.kissEntrySequence, &entryBytes_);
+    entryOffset_ = 0; phase_ = Phase::EnteringKiss;
+    emit statusChanged(tr("KISS %1 — sending mode-entry sequence").arg(settings_.portName));
+    writer_.start(0); return;
+  }
+  phase_ = Phase::Ready;
   emit statusChanged(tr("KISS %1 — port open, awaiting frames").arg(settings_.portName));
+}
+void KissClient::finishInitialization()
+{
+  if (!running_ || !portOpen() || phase_ != Phase::WaitingForKiss) return;
+  // Terminal banners and prompts are not APRS packets. Start fresh after the
+  // entry sequence has drained and the configured settling interval elapsed.
+  bool cleared;
+  { QSignalBlocker blocker(&serial_); cleared = serial_.clear(QSerialPort::Input); }
+  if (!cleared) { fail(serial_.errorString()); return; }
+  xastir_kiss_init(&decoder_); entryBytes_.clear(); entryOffset_ = 0; phase_ = Phase::Ready;
+  emit statusChanged(tr("KISS %1 — mode-entry wait complete, awaiting frames (mode unconfirmed)").arg(settings_.portName));
 }
 void KissClient::discardOutput()
 {
@@ -79,26 +136,32 @@ void KissClient::discardOutput()
 }
 void KissClient::stop()
 {
-  running_ = false; retry_.stop(); reader_.stop(); discardOutput();
+  running_ = false; retry_.stop(); reader_.stop(); entryDelay_.stop();
+  phase_ = Phase::Closed; entryBytes_.clear(); entryOffset_ = 0; discardOutput();
   { QSignalBlocker blocker(&serial_); serial_.close(); }
   xastir_kiss_init(&decoder_); emit statusChanged(tr("Serial KISS stopped"));
 }
 void KissClient::fail(const QString &error)
 {
-  reader_.stop(); discardOutput();
+  reader_.stop(); entryDelay_.stop();
+  phase_ = Phase::Closed; entryBytes_.clear(); entryOffset_ = 0; discardOutput();
   { QSignalBlocker blocker(&serial_); serial_.close(); }
   xastir_kiss_init(&decoder_);
   emit statusChanged(tr("KISS %1: %2%3").arg(settings_.portName, error, settings_.reconnect && running_ ? tr(" — retrying") : QString()));
   if (running_ && settings_.reconnect) { retry_.start(retryDelay_); retryDelay_ = qMin(30000, retryDelay_ * 2); }
   else running_ = false;
 }
-qsizetype KissClient::pendingBytes() const { return queuedBytes_ + serial_.bytesToWrite(); }
+qsizetype KissClient::pendingBytes() const { return queuedBytes_ + entryBytes_.size() - entryOffset_ + serial_.bytesToWrite(); }
 void KissClient::setTransmitBlocked(bool blocked)
 {
-  RadioInterface::setTransmitBlocked(blocked); if (blocked) discardOutput();
+  RadioInterface::setTransmitBlocked(blocked);
+  // Mode entry changes the host/TNC protocol and is permitted for RX-only
+  // operation, like explicit KISS parameters. No RF data is queued during it.
+  if (blocked && !initializing()) discardOutput();
 }
 bool KissClient::transmit(const QByteArray &information, const QString &path, QString *error)
 {
+  if (initializing()) { if (error) *error = tr("Entering KISS mode; wait for initialization to finish."); return false; }
   const auto frame = prepareFrame(information, path.isNull() ? settings_.path : path, error);
   if (frame.isEmpty()) return false;
   auto bytes = encode(settings_.radioPort, 0, frame);
@@ -117,7 +180,7 @@ bool KissClient::applyParameters(const KissSettings &requested, QString *error)
     if (error) *error = tr("Save connection settings before applying parameters to another port, baud rate or channel.");
     return false;
   }
-  if (!connected()) { if (error) *error = tr("Serial KISS port is not open."); return false; }
+  if (!connected()) { if (error) *error = initializing() ? tr("Entering KISS mode; wait before applying TNC parameters.") : tr("Serial KISS port is not open."); return false; }
   QList<Output> commands; qsizetype size = 0;
   const int values[] = {requested.txDelay, requested.persistence, requested.slotTime, requested.txTail, requested.fullDuplex};
   for (unsigned command = 1; command <= 5; ++command) {
@@ -132,6 +195,27 @@ bool KissClient::applyParameters(const KissSettings &requested, QString *error)
 }
 void KissClient::pump()
 {
+  if (portOpen() && phase_ == Phase::EnteringKiss) {
+    if (entryOffset_ < entryBytes_.size()) {
+      qint64 written;
+      {
+        QSignalBlocker blocker(&serial_);
+        written = serial_.write(entryBytes_.constData() + entryOffset_, entryBytes_.size() - entryOffset_);
+      }
+      if (written < 0) { fail(serial_.errorString()); return; }
+      entryOffset_ += written;
+      if (entryOffset_ < entryBytes_.size()) { writer_.start(10); return; }
+    }
+    if (!serial_.bytesToWrite()) {
+      phase_ = Phase::WaitingForKiss;
+      // bytesWritten means driver admission. Allow the 8N1 wire time too,
+      // so slow baud rates still get the full configured settling interval.
+      const int wireMs = int((entryBytes_.size() * 10000 + settings_.baudRate - 1) / settings_.baudRate);
+      entryDelay_.start(settings_.kissEntryDelayMs + wireMs);
+      emit statusChanged(tr("KISS %1 — waiting for mode entry").arg(settings_.portName));
+    }
+    return;
+  }
   if (!connected() || output_.isEmpty()) return;
   qsizetype budget = qMin<qsizetype>(DriverLimit - serial_.bytesToWrite(), DriverLimit);
   while (budget > 0 && !output_.isEmpty()) {
@@ -151,13 +235,14 @@ void KissClient::pump()
 }
 void KissClient::receive()
 {
-  if (!running_ || !connected() || processing_) return;
+  if (!running_ || !portOpen() || processing_) return;
   processing_ = true; int bytes = 0, frames = 0;
   while (serial_.bytesAvailable() && bytes++ < 16384 && frames < 64) {
     char byte; qint64 count;
     { QSignalBlocker blocker(&serial_); count = serial_.read(&byte, 1); }
     if (count < 0) { fail(serial_.errorString()); break; }
     if (!count) break;
+    if (initializing()) continue;
     XastirKissFrame frame; const int result = xastir_kiss_decode_byte(&decoder_, (unsigned char)byte, &frame);
     if (result < 0) { ++rejected_; continue; }
     if (!result) continue;
@@ -171,5 +256,5 @@ void KissClient::receive()
   }
   processing_ = false;
   if (bytes > 0 && connected()) emit statusChanged(tr("KISS %1 — receiving (%2 packets, %3 rejected frames)").arg(settings_.portName).arg(packets_).arg(rejected_));
-  if (connected() && serial_.bytesAvailable()) reader_.start(0);
+  if (portOpen() && serial_.bytesAvailable()) reader_.start(0);
 }

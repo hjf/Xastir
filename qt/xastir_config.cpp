@@ -156,6 +156,7 @@ bool readXastirConfig(const QString &path, XastirConfig &config, QString *error)
       s.txDelay = parameter("TNC_TXDELAY", 40); s.persistence = parameter("TNC_PERSISTENCE", 63);
       s.slotTime = parameter("TNC_SLOTTIME", 10); s.txTail = parameter("TNC_TXTAIL", 30);
       s.fullDuplex = values.value(prefix + "TNC_FULLDUPLEX", "0") == "1";
+      s.initializeKiss = values.value(prefix + "TNC_INIT_KISSMODE", "0") == "1";
       QString why; if (!KissClient::validate(s, &why)) return fail(QStringLiteral("Invalid serial KISS device %1: %2").arg(s.deviceIndex).arg(why));
       result.kiss.append(s); continue;
     }

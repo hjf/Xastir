@@ -343,13 +343,30 @@ Output is bounded to 128 queued frames and 64 KiB including Qt's write buffer;
 only 16 KiB enters that buffer at once. Disconnect/stop drops pending bytes and
 resets framing. Optional reconnect backs off from 2 to 30 seconds. A successful
 send means host queue admission; standard KISS cannot confirm TNC acceptance or
-RF delivery. Disable Transmit ALL also clears pending host output.
+RF delivery. Disable Transmit ALL also clears pending RF output.
 
 Interface Control has serial port selection/manual entry, actual baud rate,
 channel, path, startup/reconnect/TX flags, manual open/close and five KISS
 parameters. Parameters are sent only by **Apply displayed TNC parameters**, never
-on startup, Save or reconnect. The TNC must already be in KISS mode. This
-iteration excludes GPS, mode-entry/exit scripts and proprietary CRC variants.
+on startup, Save or reconnect. Optional **Enter KISS on open** supports devices
+starting in TNC2/terminal mode. It defaults to the legacy `ESC @ k CR` sequence
+(`\x1b@k\r`) and a 100 ms wait; both sequence and wait are configurable. Entry
+remains disabled unless selected or imported from `TNC_INIT_KISSMODE:1`.
+
+On each open/reconnect the client sends entry bytes, waits for Qt's output buffer
+to drain, then uses an asynchronous timer for the serial wire time plus the
+configured settling interval. Data TX and parameter commands are rejected until
+the wait finishes. Terminal input during initialization is discarded, without
+entering station/message/history services. Stop/failure cancels the sequence and
+timer; no pending data is replayed. Entry is a host/TNC control action allowed
+for receive-only/global-disabled operation and never enables RF transmission.
+The wait completing does not confirm KISS mode; status makes this explicit.
+
+Entry strings accept bounded printable ASCII with `\r`, `\n`, `\t`, `\\` and
+`\xHH` escapes; malformed or oversized enabled sequences fail validation before
+opening a port. Saved Qt settings retain the enable flag, sequence and wait;
+older Qt serial rows default to entry disabled. This iteration excludes GPS,
+general command-mode operation, mode exit and proprietary CRC variants.
 Types 10/13 legacy configurations import into this adapter, including Linux
 `speed_t` conversion and explicit TX flags. Qt settings persist separately from
 the legacy CNF. `--no-kiss` suppresses serial connections for a run.
@@ -357,9 +374,10 @@ the legacy CNF. `--no-kiss` suppresses serial connections for a run.
 Linux pseudo-terminal fixtures verify actual wire bytes, fragmented/escaped and
 back-to-back frames, channel/command filtering, invalid/oversize recovery, event
 loop yielding, queue bounds, global cancellation, reconnect, parameter escaping,
-receive-only ACK suppression, message delivery ACKs, beacons/objects, settings
-and history restoration without TX. No physical device was accessed. Linux
-builds now require `qt6-serialport-dev`. The deferred Windows build recipe includes
+receive-only ACK suppression, message delivery ACKs, beacons/objects, settings,
+entry-byte ordering/escaping, transmit guards during entry, nonblocking waits,
+stop/reconnect cancellation and history restoration without RF TX. No physical
+device was accessed. Linux builds now require `qt6-serialport-dev`. The deferred Windows build recipe includes
 Qt Serial Port; no Windows build was run.
 
 ## Remaining migration work

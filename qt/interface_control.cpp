@@ -44,7 +44,8 @@ QJsonObject serialize(const XastirConfig &c)
   QJsonArray kiss;
   for (const auto &s : c.kiss) kiss.append(QJsonObject{{"device", s.deviceIndex}, {"port", s.portName}, {"baud", s.baudRate},
     {"channel", int(s.radioPort)}, {"path", s.path}, {"auto", s.connectOnStartup}, {"reconnect", s.reconnect}, {"tx", s.transmitEnabled},
-    {"txDelay", s.txDelay}, {"persistence", s.persistence}, {"slotTime", s.slotTime}, {"txTail", s.txTail}, {"fullDuplex", s.fullDuplex}});
+    {"txDelay", s.txDelay}, {"persistence", s.persistence}, {"slotTime", s.slotTime}, {"txTail", s.txTail}, {"fullDuplex", s.fullDuplex},
+    {"initializeKiss", s.initializeKiss}, {"kissEntrySequence", s.kissEntrySequence}, {"kissEntryDelayMs", s.kissEntryDelayMs}});
   QJsonObject result{{"callsign", c.callsign},
                      {"agwpe", devices},
                      {"kiss", kiss},
@@ -105,6 +106,9 @@ void readQtConfiguration(XastirConfig &c)
       s.connectOnStartup = d["auto"].toBool(); s.reconnect = d["reconnect"].toBool(true); s.transmitEnabled = d["tx"].toBool();
       s.txDelay = d["txDelay"].toInt(40); s.persistence = d["persistence"].toInt(63); s.slotTime = d["slotTime"].toInt(10);
       s.txTail = d["txTail"].toInt(30); s.fullDuplex = d["fullDuplex"].toBool();
+      s.initializeKiss = d["initializeKiss"].toBool();
+      s.kissEntrySequence = d["kissEntrySequence"].toString(s.kissEntrySequence);
+      s.kissEntryDelayMs = d["kissEntryDelayMs"].toInt(100);
       if (ids.contains(s.deviceIndex) || !KissClient::validate(s)) continue;
       ids.insert(s.deviceIndex); c.kiss.append(s);
     }
@@ -224,9 +228,10 @@ void InterfaceControl::open()
   auto *agwpeTab = new QWidget(d); auto *agwpeLayout = new QVBoxLayout(agwpeTab);
   agwpeLayout->addWidget(table); tabs->addTab(agwpeTab, tr("AGWPE"));
   auto *serialTab = new QWidget(d); auto *serialLayout = new QVBoxLayout(serialTab);
-  auto *kissTable = new QTableWidget(0, 13, serialTab); kissTable->setObjectName("kissInterfaces");
+  auto *kissTable = new QTableWidget(0, 16, serialTab); kissTable->setObjectName("kissInterfaces");
   kissTable->setHorizontalHeaderLabels({tr("Device"), tr("Serial port"), tr("Baud"), tr("Channel"), tr("Path"), tr("Startup"),
-    tr("Reconnect"), tr("Enable TX"), tr("TX delay ×10ms"), tr("Persistence"), tr("Slot ×10ms"), tr("Tail ×10ms"), tr("Full duplex")});
+    tr("Reconnect"), tr("Enable TX"), tr("TX delay ×10ms"), tr("Persistence"), tr("Slot ×10ms"), tr("Tail ×10ms"), tr("Full duplex"),
+    tr("Enter KISS on open"), tr("Entry sequence"), tr("Entry wait ms")});
   kissTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents); serialLayout->addWidget(kissTable);
   tabs->addTab(serialTab, tr("Serial KISS"));
   auto append = [table](const AgwpeSettings &s)
@@ -293,12 +298,15 @@ void InterfaceControl::open()
     };
     number(2, s.baudRate, 300, 4000000); number(3, int(s.radioPort), 0, 15);
     kissTable->setItem(row, 4, new QTableWidgetItem(s.path));
-    for (int col : {5, 6, 7, 12}) {
+    for (int col : {5, 6, 7, 12, 13}) {
       auto *item = new QTableWidgetItem; item->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-      item->setCheckState((col == 5 ? s.connectOnStartup : col == 6 ? s.reconnect : col == 7 ? s.transmitEnabled : s.fullDuplex) ? Qt::Checked : Qt::Unchecked);
+      item->setCheckState((col == 5 ? s.connectOnStartup : col == 6 ? s.reconnect : col == 7 ? s.transmitEnabled : col == 12 ? s.fullDuplex : s.initializeKiss) ? Qt::Checked : Qt::Unchecked);
       kissTable->setItem(row, col, item);
     }
     number(8, s.txDelay, 0, 255); number(9, s.persistence, 0, 255); number(10, s.slotTime, 0, 255); number(11, s.txTail, 0, 255);
+    auto *entry = new QLineEdit(s.kissEntrySequence); entry->setMaxLength(1024); entry->setMinimumWidth(140);
+    entry->setToolTip(tr("Raw serial bytes sent on each open/reconnect. Escapes: \\r, \\n, \\t, \\\\, \\xHH. Legacy preset: \\x1b@k\\r. For a plain k command use k\\r."));
+    kissTable->setCellWidget(row, 14, entry); number(15, s.kissEntryDelayMs, 0, 10000);
   };
   for (const auto &s : config_.kiss) appendKiss(s);
   auto readKiss = [kissTable, call](int row, QString *error) -> std::optional<KissSettings> {
@@ -312,6 +320,7 @@ void InterfaceControl::open()
     s.baudRate = number(2); s.radioPort = unsigned(number(3)); s.path = kissTable->item(row, 4)->text().trimmed().toUpper();
     s.connectOnStartup = checked(5); s.reconnect = checked(6); s.transmitEnabled = checked(7);
     s.txDelay = number(8); s.persistence = number(9); s.slotTime = number(10); s.txTail = number(11); s.fullDuplex = checked(12);
+    s.initializeKiss = checked(13); s.kissEntrySequence = qobject_cast<QLineEdit *>(kissTable->cellWidget(row, 14))->text(); s.kissEntryDelayMs = number(15);
     if (!KissClient::validate(s, error)) return {};
     return s;
   };
@@ -329,7 +338,7 @@ void InterfaceControl::open()
   auto *openKiss = new QPushButton(tr("Open saved port")); openKiss->setObjectName("openKissPort"); serialButtons->addWidget(openKiss);
   auto *closeKiss = new QPushButton(tr("Close saved port")); closeKiss->setObjectName("closeKissPort"); serialButtons->addWidget(closeKiss);
   auto *applyKiss = new QPushButton(tr("Apply displayed TNC parameters")); applyKiss->setObjectName("applyKissParameters"); serialButtons->addWidget(applyKiss);
-  auto *serialNote = new QLabel(tr("8N1, no flow control. The TNC must already be in standard KISS mode. Save stores settings; Open uses the saved connection. Apply sends the five displayed TNC parameters immediately, including while receive-only. Cancel does not undo commands already sent. No parameters are sent automatically."));
+  auto *serialNote = new QLabel(tr("8N1, no flow control. For a TNC that starts in terminal mode, enable Enter KISS on open and set its entry sequence (legacy: \\x1b@k\\r; plain k: k\\r). Each open/reconnect sends it and waits before allowing KISS traffic, including when receive-only. Save stores settings; Open uses the saved connection. Apply sends only the five displayed TNC parameters. Cancel cannot undo commands already sent. Parameters are never sent automatically."));
   serialNote->setWordWrap(true); serialLayout->addWidget(serialNote);
   auto *serialStatus = new QLabel; serialStatus->setObjectName("kissActionStatus"); serialStatus->setTextFormat(Qt::PlainText); serialStatus->setWordWrap(true); serialLayout->addWidget(serialStatus);
   connect(openKiss, &QPushButton::clicked, this, [this, kissTable, serialStatus] {

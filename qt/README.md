@@ -455,8 +455,13 @@ An open port only establishes a host serial connection, not successful TNC or RF
 reception. The packet counter advances when valid frames arrive.
 
 This iteration supports standard KISS data frames, 8N1 and no flow control.
-The TNC must already be in KISS mode. GPS, command-mode scripts, mode-entry/exit
-strings, SMACK/FlexNet CRC extensions and kernel AX.25 are not implemented.
+TNCs already in KISS mode need no initialization. For a device that starts in
+TNC2/terminal mode, check **Enter KISS on open**, set its **Entry sequence** and
+**Entry wait ms**, then Save. The legacy preset is `\x1b@k\r` (bytes
+`1B 40 6B 0D`, ESC @ k CR) with a 100 ms wait. For a TNC that accepts a plain
+`k` command, enter `k\r`. Commands vary by device; select the sequence your
+TNC requires. Entry is disabled by default. GPS, general command-mode operation,
+mode-exit handling, SMACK/FlexNet CRC extensions and kernel AX.25 remain unfinished.
 One selected channel is used for both reception and transmission on each device;
 other channels and non-data commands are ignored on receive.
 
@@ -464,9 +469,20 @@ TX delay, persistence, slot time, TX tail and full duplex are stored separately
 from connection settings. **Apply displayed TNC parameters** explicitly sends all
 five displayed values to the open saved connection, including when receive-only.
 Delay, slot and tail values are in 10 ms units; persistence is a raw 0–255 value.
-Neither startup nor reconnect applies parameters or sends mode-entry commands.
+Neither startup nor reconnect applies parameters.
 Save alone does not send parameters. Cancel cannot undo commands already sent.
 KISS provides no command or frame acknowledgement.
+
+When entry is enabled, each successful port open/reconnect sends the raw entry
+sequence before any KISS data or parameter commands are allowed. The wait uses
+an asynchronous timer, allowing the serial wire time plus the configured
+0–10,000 ms settling interval after Qt hands the bytes to the driver. Entry
+strings accept printable ASCII and `\r`, `\n`, `\t`, `\\` and `\xHH` escapes,
+with a 256-byte limit. Terminal banners and input received during initialization
+are discarded. Entry also runs for receive-only devices and while Disable
+Transmit ALL is active; it does not enable RF transmission. Closing/failure
+cancels initialization. A completed wait does not confirm that the TNC accepted
+the command; valid received KISS frames provide evidence of the active mode.
 
 Messages, ACKs, queries, position beacons and owned objects/items can use the
 selected serial device. Enable TX and the existing global and position/object
@@ -474,22 +490,23 @@ transmit controls still apply. A successful send means admission to the bounded
 host queue; it does not establish TNC acceptance, RF transmission, reception,
 digipeater repetition or an APRS message ACK. Closing or losing a port drops
 queued bytes; interrupted messages retain the normal retry/manual-retry policy.
-Disable Transmit ALL drops pending host output; bytes already sent cannot be
+Disable Transmit ALL drops pending RF output; bytes already sent cannot be
 recalled. Reception never enables forwarding or an RF/Internet gateway.
 
 Legacy import recognizes types 10/13 and their `NAME`, `SPEED`, `STYLE:0`,
 `RADIO_PORT`, `UNPROTO1`, `ONSTARTUP`, `RECONN`, `TXMT` and five `TNC_*` parameters.
 Linux speed constants (for example 13 → 9600 and 4098 → 115200) are converted to
 actual baud rates; configurations storing literal rates also work. Unsupported
-serial styles or malformed parameters produce an import error. Legacy automatic
-KISS mode-entry settings are intentionally ignored. Older saved Qt configurations
-without a serial section retain imported KISS devices; saving now records the
+serial styles or malformed parameters produce an import error. Legacy
+`TNC_INIT_KISSMODE:1` enables the legacy entry preset and 100 ms wait.
+Older saved Qt configurations without a serial section retain imported KISS devices; saving now records the
 serial list explicitly. `--no-kiss` suppresses serial devices for the run.
 
 Linux pseudo-terminal fixtures exercise framing, escaped payload/command bytes,
 channel filtering, malformed-stream recovery, bounded work/queues, receive-only
 operation, global blocking, disconnect/reconnect, explicit parameter commands,
-settings, message ACKs, beacons, objects and restoration without transmission.
+settings, mode-entry bytes and ordering, cancellation/reconnect, message ACKs,
+beacons, objects and restoration without RF transmission.
 These fixtures do not establish behavior of a physical TNC or serial driver.
 
 ## APRS-IS reception

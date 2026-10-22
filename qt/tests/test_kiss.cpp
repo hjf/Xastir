@@ -11,11 +11,13 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSettings>
@@ -89,6 +91,65 @@ private slots:
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dir_.path());
   }
   void init() { QSettings().clear(); }
+  void entrySequenceValidation() {
+    QByteArray bytes; QString error;
+    QVERIFY(KissClient::parseEntrySequence(KissSettings{}.kissEntrySequence, &bytes, &error));
+    QCOMPARE(bytes, QByteArray::fromHex("1b406b0d"));
+    QVERIFY(KissClient::parseEntrySequence("k\\r", &bytes)); QCOMPARE(bytes, QByteArray("k\r"));
+    QVERIFY(KissClient::parseEntrySequence("\\x00\\xFF\\\\\\n\\t", &bytes)); QCOMPARE(bytes, QByteArray::fromHex("00ff5c0a09"));
+    for (const QString &invalid : {QString(), QString("k\\"), QString("\\x"), QString("\\x0g"), QString("\\q"),
+         QString::fromUtf8("é"), QString("k\r"), QString(257, 'x')})
+      QVERIFY2(!KissClient::parseEntrySequence(invalid, &bytes, &error), qPrintable(invalid));
+    QVERIFY(KissClient::parseEntrySequence(QString("\\x41").repeated(256), &bytes)); QCOMPARE(bytes, QByteArray(256, 'A'));
+    auto s = settings(Pty{}); s.portName = "/dev/example"; s.initializeKiss = true; s.kissEntrySequence = "";
+    QVERIFY(!KissClient::validate(s)); s.initializeKiss = false; QVERIFY(KissClient::validate(s));
+    s.kissEntryDelayMs = 10001; QVERIFY(!KissClient::validate(s));
+  }
+  void modeEntryOrdersTrafficAndPreservesTransmitGuards() {
+    Pty p; QVERIFY(p.master >= 0); auto s = settings(p, true); s.initializeKiss = true; s.kissEntryDelayMs = 180;
+    StationModel stations; KissClient client(s, &stations); QSignalSpy received(&client, &RadioInterface::packetReceived);
+    QSignalSpy transmitted(&client, &RadioInterface::packetTransmitted); QString error;
+    QElapsedTimer elapsed; elapsed.start(); client.start(); client.start(); // Repeated Open does not reinitialize an open port.
+    QVERIFY(client.portOpen()); QVERIFY(client.initializing()); QVERIFY(!client.connected());
+    QVERIFY(!client.transmit(">too soon", {}, &error)); QVERIFY(error.contains("initialization"));
+    QVERIFY(!client.applyParameters(&error)); QVERIFY(error.contains("Entering KISS"));
+    client.setTransmitBlocked(true); // This must not cancel the control sequence or its wait.
+    QByteArray captured; QTRY_COMPARE((captured += p.drain()), QByteArray::fromHex("1b406b0d"));
+    QVERIFY(p.send("TNC2 ready\r\ncmd:" + wire(incomingAddress + ">startup bytes")));
+    bool responsive = false; QTimer::singleShot(0, &client, [&] { responsive = true; }); QTRY_VERIFY(responsive);
+    QVERIFY(!client.connected()); QTRY_VERIFY(client.connected()); QVERIFY(elapsed.elapsed() >= 180);
+    QVERIFY(!client.initializing()); QCOMPARE(received.size(), 0); QVERIFY(!stations.record("N0CALL-3"));
+    QVERIFY(p.drain().isEmpty()); QCOMPARE(transmitted.size(), 0); // No implicit parameters or RF data.
+    QVERIFY(!client.transmit(">blocked", {}, &error)); QVERIFY(error.contains("All transmission"));
+    client.setTransmitBlocked(false); QVERIFY(client.transmit(">ready")); captured.clear();
+    QTRY_COMPARE((captured += p.drain()), wire(outgoingAddress + ">ready"));
+    QVERIFY(p.send(wire(incomingAddress + ">real KISS"))); QTRY_COMPARE(received.size(), 1);
+    QCOMPARE(received[0][0].toByteArray(), QByteArray("N0CALL-3>APRS:>real KISS"));
+  }
+  void modeEntryReconnectAndCancellation() {
+    Pty first, second; QVERIFY(first.master >= 0 && second.master >= 0);
+    const auto link = dir_.filePath("entry-link"); QVERIFY(QFile::link(first.path, link));
+    auto s = settings(first, true); s.portName = link; s.reconnect = true; s.initializeKiss = true; s.kissEntryDelayMs = 100;
+    s.kissEntrySequence = "k\\r"; KissClient client(s, nullptr); client.start();
+    QByteArray captured; QTRY_COMPARE((captured += first.drain()), QByteArray("k\r")); QTRY_VERIFY(client.connected());
+    first.disconnect(); QVERIFY(client.transmit(">lost")); QTRY_VERIFY(!client.portOpen());
+    QVERIFY(QFile::remove(link)); QVERIFY(QFile::link(second.path, link)); QTRY_VERIFY_WITH_TIMEOUT(client.portOpen(), 5000);
+    QVERIFY(client.initializing()); QVERIFY(!client.connected()); captured.clear();
+    QTRY_COMPARE((captured += second.drain()), QByteArray("k\r"));
+    client.stop(); QVERIFY(!client.portOpen()); QVERIFY(!client.initializing()); QCOMPARE(client.pendingBytes(), qsizetype(0));
+    QTest::qWait(180); QVERIFY(!client.connected()); QVERIFY(second.drain().isEmpty()); // The canceled delay cannot mark a closed port ready.
+    client.start(); client.stop(); QTest::qWait(20); QVERIFY(second.drain().isEmpty()); // Stop also cancels an entry not yet written.
+    client.start(); captured.clear(); QTRY_COMPARE((captured += second.drain()), QByteArray("k\r")); QTRY_VERIFY(client.connected());
+    client.stop(); QFile::remove(link);
+    auto rx = settings(second); rx.initializeKiss = true; KissClient receiveOnly(rx, nullptr); receiveOnly.setTransmitBlocked(true); receiveOnly.start();
+    captured.clear(); QTRY_COMPARE((captured += second.drain()), QByteArray::fromHex("1b406b0d")); QTRY_VERIFY(receiveOnly.connected());
+    QVERIFY(!receiveOnly.transmit(">receive only")); QVERIFY(second.drain().isEmpty());
+    Pty broken; auto failed = settings(broken); failed.initializeKiss = true;
+    KissClient interrupted(failed, nullptr); QSignalSpy transmissions(&interrupted, &RadioInterface::packetTransmitted);
+    interrupted.start(); QVERIFY(interrupted.initializing()); broken.disconnect(); // Fail while writing entry, before its timer starts.
+    QTRY_VERIFY(!interrupted.portOpen()); QTest::qWait(150);
+    QVERIFY(!interrupted.initializing()); QVERIFY(!interrupted.connected()); QCOMPARE(interrupted.pendingBytes(), qsizetype(0)); QCOMPARE(transmissions.size(), 0);
+  }
   void receiveFramingAndRecovery() {
     Pty p; QVERIFY(p.master >= 0); StationModel stations;
     KissClient client(settings(p), &stations); QSignalSpy received(&client, &RadioInterface::packetReceived);
@@ -214,13 +275,26 @@ private slots:
     d->findChild<QPushButton *>("applyKissParameters")->click(); QByteArray bytes; QTRY_VERIFY(!(bytes += p.drain()).isEmpty());
     QVERIFY(bytes.startsWith(QByteArray::fromHex("c0c1dbdcc0c0c2dbddc0"))); QCOMPARE(client->settings().txDelay, 40); // Apply doesn't save.
     d->findChild<QPushButton *>("closeKissPort")->click(); QVERIFY(!client->connected());
+    table->item(0, 13)->setCheckState(Qt::Checked);
+    qobject_cast<QLineEdit *>(table->cellWidget(0, 14))->setText("k\\r");
+    qobject_cast<QSpinBox *>(table->cellWidget(0, 15))->setValue(220);
     d->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click(); QTRY_VERIFY(!d->isVisible());
     XastirConfig saved; readQtConfiguration(saved); QCOMPARE(saved.kiss.size(), 1); QCOMPARE(saved.kiss[0].txDelay, 192);
     QCOMPARE(saved.kiss[0].persistence, 219); QCOMPARE(saved.kiss[0].baudRate, 9600); QVERIFY(!saved.kiss[0].connectOnStartup);
+    QVERIFY(saved.kiss[0].initializeKiss); QCOMPARE(saved.kiss[0].kissEntrySequence, QString("k\\r")); QCOMPARE(saved.kiss[0].kissEntryDelayMs, 220);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     control->open(); d = window.findChild<QDialog *>("interfaceControl"); table = d->findChild<QTableWidget *>("kissInterfaces");
+    table->selectRow(0); d->findChild<QPushButton *>("openKissPort")->click();
+    auto *updated = window.findChild<KissClient *>(); QVERIFY(updated->initializing());
+    QVERIFY(d->findChild<QLabel *>("kissActionStatus")->text().contains("entering KISS")); bytes.clear();
+    QTRY_COMPARE((bytes += p.drain()), QByteArray("k\r"));
+    d->findChild<QPushButton *>("applyKissParameters")->click(); QVERIFY(d->findChild<QLabel *>("kissActionStatus")->text().contains("wait"));
+    QTRY_VERIFY(updated->connected()); QVERIFY(p.drain().isEmpty()); d->findChild<QPushButton *>("closeKissPort")->click();
     d->findChild<QPushButton *>("addKissInterface")->click(); QCOMPARE(table->rowCount(), 2);
     QCOMPARE(table->item(1, 7)->checkState(), Qt::Unchecked); QCOMPARE(table->item(1, 5)->checkState(), Qt::Unchecked);
+    QCOMPARE(table->item(1, 13)->checkState(), Qt::Unchecked); table->item(0, 13)->setCheckState(Qt::Unchecked);
     d->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->click(); XastirConfig cancelled; readQtConfiguration(cancelled); QCOMPARE(cancelled.kiss.size(), 1);
+    QVERIFY(cancelled.kiss[0].initializeKiss);
   }
   void legacyImportAndQtUpgrade() {
     QFile file(dir_.filePath("legacy.cnf")); QVERIFY(file.open(QIODevice::WriteOnly));
@@ -233,6 +307,8 @@ private slots:
     QVERIFY2(readXastirConfig(file.fileName(), config, &error), qPrintable(error));
     QCOMPARE(config.kiss.size(), 3); QCOMPARE(config.kiss[0].baudRate, 9600); QCOMPARE(config.kiss[0].radioPort, 12u);
     QVERIFY(!config.kiss[0].transmitEnabled); QVERIFY(config.kiss[0].connectOnStartup); QCOMPARE(config.kiss[0].persistence, 192);
+    QVERIFY(config.kiss[0].initializeKiss); QCOMPARE(config.kiss[0].kissEntrySequence, QString("\\x1b@k\\r")); QCOMPARE(config.kiss[0].kissEntryDelayMs, 100);
+    QVERIFY(!config.kiss[1].initializeKiss); QVERIFY(!config.kiss[2].initializeKiss);
     QCOMPARE(config.kiss[1].baudRate, 115200); QVERIFY(config.kiss[1].transmitEnabled); QCOMPARE(config.kiss[2].baudRate, 9600);
     QSettings().setValue("interfaces/config", QByteArray("{\"callsign\":\"NEW\",\"agwpe\":[]}"));
     readQtConfiguration(config); QCOMPARE(config.kiss.size(), 3); QCOMPARE(config.kiss[0].callsign, QString("NEW"));
@@ -255,6 +331,8 @@ private slots:
     auto json = QJsonDocument::fromJson(QSettings().value("interfaces/config").toByteArray()).object();
     QJsonArray devices = json["kiss"].toArray(); auto duplicate = devices[0].toObject(); duplicate["device"] = 2; devices.append(duplicate);
     auto invalid = duplicate; invalid["device"] = 5; invalid["channel"] = -1; devices.append(invalid); json["kiss"] = devices;
+    invalid = duplicate; invalid["device"] = 6; invalid["initializeKiss"] = true; invalid["kissEntrySequence"] = "\\q"; devices.append(invalid);
+    invalid = duplicate; invalid["device"] = 7; invalid["kissEntryDelayMs"] = -1; devices.append(invalid); json["kiss"] = devices;
     QSettings().setValue("interfaces/config", QJsonDocument(json).toJson()); readQtConfiguration(config); QCOMPARE(config.kiss.size(), 1); QCOMPARE(config.kiss[0].deviceIndex, 3);
   }
 };
